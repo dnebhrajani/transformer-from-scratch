@@ -12,15 +12,13 @@ import wandb
 from dataset import (
     load_raw_data,
     train_val_test_split,
-    train_bpe_tokenizer,
-    load_bpe_tokenizer,
+    get_or_train_tokenizers,
     get_dataloaders,
-    TOKENIZER_DIR,
+    OUTPUT_DIR,
 )
+from tokenizer import BPETokenizer
 from models.transformer import TransformerSeq2Seq, BLTTransformerSeq2Seq, create_masks
 from utils import evaluate_all, greedy_decode_batch
-
-#torch.autograd.set_detect_anomaly(True)
 
 
 # ---------- Configuration Presets ----------
@@ -40,8 +38,8 @@ BASE_CONFIG = {
     "warmup_steps": 500,
     "max_epochs": 50,
     "patience": 7,
-    "bpe_vocab_size": 400,
-    "src_vocab_size": 257,  # 0=PAD, 1-256=byte values
+    "src_bpe_vocab_size": 400,
+    "tgt_bpe_vocab_size": 400,
 }
 
 CONFIGS = {
@@ -229,7 +227,7 @@ def validate(model, dataloader, criterion, device, config):
     return total_loss / max(num_batches, 1)
 
 
-def run_evaluation(model, dataloader, tokenizer, device, config) -> dict:
+def run_evaluation(model, dataloader, tgt_tokenizer, device, config) -> dict:
     """Run full evaluation with greedy decoding on a dataset split."""
     model.eval()
     all_predictions = []
@@ -240,33 +238,29 @@ def run_evaluation(model, dataloader, tokenizer, device, config) -> dict:
             src = batch["src_bytes"].to(device)
             src_pad_mask = batch["src_padding_mask"].to(device)
 
-            # Use model's generate method
-            logits = model.generate(src, src_pad_mask)
-            # Convert logits to byte predictions
+            with torch.no_grad():
+                logits = model.generate(src, src_pad_mask)
             pred_bytes = logits.argmax(dim=-1)  # (batch, pred_len)
             for i in range(pred_bytes.size(0)):
                 byte_list = pred_bytes[i].cpu().tolist()
-                # Convert byte values to string (filter 0s = padding-ish)
                 text = bytes([b for b in byte_list if 0 <= b < 256]).decode(
                     "utf-8", errors="replace"
                 )
                 all_predictions.append(text)
         else:
             src = batch["src"].to(device)
-            src_mask = (src == 0).unsqueeze(1).unsqueeze(2)
+            src_pad_mask = (src == 0).unsqueeze(1).unsqueeze(2)
 
-            bos_id = tokenizer.token_to_id("<bos>")
-            eos_id = tokenizer.token_to_id("<eos>")
+            bos_id = tgt_tokenizer.bos_id
+            eos_id = tgt_tokenizer.eos_id
 
             decoded = greedy_decode_batch(
-                model, src, src_mask, config["max_tgt_len"], bos_id, eos_id, device
+                model, src, src_pad_mask, config["max_tgt_len"], bos_id, eos_id, device
             )
 
             for i in range(decoded.size(0)):
                 token_ids = decoded[i].cpu().tolist()
-                # Remove BOS/EOS/PAD
-                token_ids = [t for t in token_ids if t not in (bos_id, eos_id, 0)]
-                text = tokenizer.decode(token_ids)
+                text = tgt_tokenizer.decode(token_ids, skip_special_tokens=True)
                 all_predictions.append(text)
 
         all_targets.extend(batch["plain_texts"])
@@ -302,26 +296,23 @@ def main():
     if not args.no_wandb:
         wandb.init(project="anlp-transformer-from-scratch", name=config["name"], config=config)
 
-    # Tokenizer
-    tokenizer = None
+    # Tokenizers
+    src_tokenizer = None
+    tgt_tokenizer = None
     if config["tokenization"] == "subword":
-        tokenizer_path = str(TOKENIZER_DIR / "bpe_tokenizer.json")
-        if os.path.exists(tokenizer_path):
-            tokenizer = load_bpe_tokenizer(tokenizer_path)
-            print(f"Loaded tokenizer from {tokenizer_path}")
-        else:
-            print("Training BPE tokenizer...")
-            _, plains = load_raw_data()
-            tokenizer = train_bpe_tokenizer(
-                plains, vocab_size=config["bpe_vocab_size"], save_path=tokenizer_path
-            )
-            print(f"Saved tokenizer to {tokenizer_path}")
-
-        config["tgt_vocab_size"] = tokenizer.get_vocab_size()
+        ciphers, plains = load_raw_data()
+        src_tokenizer, tgt_tokenizer = get_or_train_tokenizers(
+            ciphers, plains,
+            src_vocab_size=config["src_bpe_vocab_size"],
+            tgt_vocab_size=config["tgt_bpe_vocab_size"],
+        )
+        config["src_vocab_size"] = src_tokenizer.get_vocab_size()
+        config["tgt_vocab_size"] = tgt_tokenizer.get_vocab_size()
+        print(f"Source vocab size: {config['src_vocab_size']}")
         print(f"Target vocab size: {config['tgt_vocab_size']}")
 
     # Dataloaders
-    train_loader, val_loader, test_loader = get_dataloaders(config, tokenizer)
+    train_loader, val_loader, test_loader = get_dataloaders(config, src_tokenizer, tgt_tokenizer)
     print(f"Train: {len(train_loader.dataset)}, Val: {len(val_loader.dataset)}, Test: {len(test_loader.dataset)}")
 
     # Model
@@ -340,7 +331,7 @@ def main():
     if config["tokenization"] == "blt":
         criterion = nn.CrossEntropyLoss(ignore_index=-100)
     else:
-        pad_id = tokenizer.token_to_id("<pad>")
+        pad_id = tgt_tokenizer.pad_id
         criterion = nn.CrossEntropyLoss(ignore_index=pad_id)
 
     optimizer = optim.AdamW(
@@ -404,7 +395,7 @@ def main():
     # Training loop
     best_val_loss = float("inf")
     patience_counter = 0
-    save_dir = TOKENIZER_DIR / "checkpoints" / config["name"]
+    save_dir = OUTPUT_DIR / "checkpoints" / config["name"]
     os.makedirs(save_dir, exist_ok=True)
 
     for epoch in range(config["max_epochs"]):
@@ -458,7 +449,7 @@ def main():
     # Final evaluation on test set
     print("\n=== Test Set Evaluation ===")
     model.load_state_dict(torch.load(save_dir / "best_model.pt", map_location=device))
-    metrics = run_evaluation(model, test_loader, tokenizer, device, config)
+    metrics = run_evaluation(model, test_loader, tgt_tokenizer, device, config)
 
     for k, v in metrics.items():
         print(f"  {k}: {v:.4f}")

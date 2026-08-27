@@ -1,15 +1,14 @@
 import os
-import json
 from pathlib import Path
-from functools import partial
 
 import torch
 from torch.utils.data import Dataset, DataLoader
-from tokenizers import Tokenizer, models, trainers, pre_tokenizers, processors
+
+from tokenizer import BPETokenizer, train_cipher_tokenizer, train_plaintext_tokenizer
 
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "Dataset_A1"
-TOKENIZER_DIR = Path(__file__).resolve().parent.parent / "outputs"
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "outputs"
 
 
 def load_raw_data() -> tuple[list[str], list[str]]:
@@ -41,117 +40,118 @@ def train_val_test_split(
     }
 
 
-# ---------- Source Tokenization (Cipher -> Byte tokens) ----------
+# ---------- Tokenizer Management ----------
 
-def cipher_to_byte_ids(cipher_str: str) -> list[int]:
+def get_or_train_tokenizers(
+    cipher_texts: list[str],
+    plain_texts: list[str],
+    src_vocab_size: int = 400,
+    tgt_vocab_size: int = 400,
+) -> tuple[BPETokenizer, BPETokenizer]:
     """
-    Convert binary string to byte-level token IDs.
-    Groups bits into bytes (8 bits each), converts to integer 0-255,
-    then shifts by +1 so that 0 can serve as PAD.
-    Returns list of ints in range [1, 256].
+    Load saved tokenizers or train new ones.
+    Source tokenizer: BPE on binary cipher strings.
+    Target tokenizer: BPE on English plaintext.
     """
-    assert len(cipher_str) % 8 == 0, f"Cipher length {len(cipher_str)} not divisible by 8"
-    byte_ids = []
-    for i in range(0, len(cipher_str), 8):
-        byte_val = int(cipher_str[i : i + 8], 2)
-        byte_ids.append(byte_val + 1)  # +1 so 0 = PAD
-    return byte_ids
+    src_path = str(OUTPUT_DIR / "src_bpe_tokenizer.json")
+    tgt_path = str(OUTPUT_DIR / "tgt_bpe_tokenizer.json")
 
+    if os.path.exists(src_path) and os.path.exists(tgt_path):
+        src_tokenizer = BPETokenizer.load(src_path)
+        tgt_tokenizer = BPETokenizer.load(tgt_path)
+        print(f"Loaded tokenizers: src vocab={src_tokenizer.get_vocab_size()}, tgt vocab={tgt_tokenizer.get_vocab_size()}")
+    else:
+        print("Training source BPE tokenizer on cipher texts...")
+        src_tokenizer = train_cipher_tokenizer(cipher_texts, vocab_size=src_vocab_size)
+        os.makedirs(os.path.dirname(src_path), exist_ok=True)
+        src_tokenizer.save(src_path)
+        print(f"  Source vocab size: {src_tokenizer.get_vocab_size()}")
 
-# ---------- Target Tokenization (BPE on English plaintext) ----------
+        print("Training target BPE tokenizer on plaintext...")
+        tgt_tokenizer = train_plaintext_tokenizer(plain_texts, vocab_size=tgt_vocab_size)
+        tgt_tokenizer.save(tgt_path)
+        print(f"  Target vocab size: {tgt_tokenizer.get_vocab_size()}")
 
-def train_bpe_tokenizer(
-    texts: list[str], vocab_size: int = 400, save_path: str | None = None
-) -> Tokenizer:
-    """
-    Train a BPE tokenizer on the plaintext corpus.
-    Small vocab (300-500) to avoid data sparsity on 5000 sentences.
-    """
-    tokenizer = Tokenizer(models.BPE())
-    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
-
-    trainer = trainers.BpeTrainer(
-        vocab_size=vocab_size,
-        special_tokens=["<pad>", "<bos>", "<eos>", "<unk>"],
-        min_frequency=2,
-    )
-
-    tokenizer.train_from_iterator(texts, trainer=trainer)
-
-    # Add post-processor for BOS/EOS
-    bos_id = tokenizer.token_to_id("<bos>")
-    eos_id = tokenizer.token_to_id("<eos>")
-    tokenizer.post_processor = processors.TemplateProcessing(
-        single=f"<bos>:0 $A:0 <eos>:0",
-        special_tokens=[("<bos>", bos_id), ("<eos>", eos_id)],
-    )
-
-    if save_path:
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        tokenizer.save(save_path)
-
-    return tokenizer
-
-
-def load_bpe_tokenizer(path: str) -> Tokenizer:
-    """Load a saved BPE tokenizer."""
-    return Tokenizer.from_file(path)
+    return src_tokenizer, tgt_tokenizer
 
 
 # ---------- Datasets ----------
 
 class CipherToTextDataset(Dataset):
     """
-    Dataset for configurations C1-C4 (tokenized).
-    Source: cipher binary -> byte IDs (vocab 257: 0=PAD, 1-256=byte values)
-    Target: plaintext -> BPE token IDs
+    Dataset for configurations C1-C4 (learned subword tokenization).
+    Source: cipher binary string -> BPE token IDs (learned subword on bit patterns)
+    Target: plaintext -> BPE token IDs (learned subword on English)
+
+    Pre-encodes all sequences at init time and caches to disk for reuse.
     """
 
     def __init__(
         self,
         ciphers: list[str],
         plains: list[str],
-        tokenizer: Tokenizer,
+        src_tokenizer: BPETokenizer,
+        tgt_tokenizer: BPETokenizer,
         max_src_len: int = 512,
         max_tgt_len: int = 512,
+        cache_path: str | None = None,
     ):
-        self.ciphers = ciphers
         self.plains = plains
-        self.tokenizer = tokenizer
         self.max_src_len = max_src_len
         self.max_tgt_len = max_tgt_len
 
-        self.pad_id = tokenizer.token_to_id("<pad>")
-        self.bos_id = tokenizer.token_to_id("<bos>")
-        self.eos_id = tokenizer.token_to_id("<eos>")
+        # Try loading from cache
+        if cache_path and os.path.exists(cache_path):
+            import json
+            with open(cache_path) as f:
+                cached = json.load(f)
+            self.src_encoded = cached["src"]
+            self.tgt_encoded = cached["tgt"]
+            print(f"  Loaded encoded cache from {cache_path} ({len(self.src_encoded)} samples)")
+            return
+
+        # Pre-encode all sequences
+        avg_bits_per_token = 10
+        max_raw_bits = max_src_len * avg_bits_per_token
+
+        print(f"  Encoding {len(ciphers)} sequences (this may take 1-2 min)...")
+        self.src_encoded = []
+        for i, cipher in enumerate(ciphers):
+            truncated = cipher[:max_raw_bits]
+            ids = src_tokenizer.encode(truncated, add_special_tokens=True)
+            self.src_encoded.append(ids[:max_src_len])
+            if (i + 1) % 500 == 0:
+                print(f"    {i+1}/{len(ciphers)} encoded...")
+
+        self.tgt_encoded = []
+        for plain in plains:
+            ids = tgt_tokenizer.encode(plain, add_special_tokens=True)
+            self.tgt_encoded.append(ids[:max_tgt_len])
+
+        # Save cache
+        if cache_path:
+            import json
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, "w") as f:
+                json.dump({"src": self.src_encoded, "tgt": self.tgt_encoded}, f)
+            print(f"  Saved encoded cache to {cache_path}")
 
     def __len__(self) -> int:
-        return len(self.ciphers)
+        return len(self.plains)
 
     def __getitem__(self, idx: int) -> dict:
-        cipher = self.ciphers[idx]
-        plain = self.plains[idx]
-
-        # Source: cipher -> byte IDs (truncate if needed)
-        src_ids = cipher_to_byte_ids(cipher)
-        src_ids = src_ids[: self.max_src_len]
-
-        # Target: plaintext -> BPE IDs (includes BOS/EOS from post-processor)
-        tgt_encoding = self.tokenizer.encode(plain)
-        tgt_ids = tgt_encoding.ids[: self.max_tgt_len]
-
         return {
-            "src_ids": torch.tensor(src_ids, dtype=torch.long),
-            "tgt_ids": torch.tensor(tgt_ids, dtype=torch.long),
-            "plain_text": plain,
+            "src_ids": torch.tensor(self.src_encoded[idx], dtype=torch.long),
+            "tgt_ids": torch.tensor(self.tgt_encoded[idx], dtype=torch.long),
+            "plain_text": self.plains[idx],
         }
 
 
 class CipherToTextBLTDataset(Dataset):
     """
     Dataset for configuration C5 (BLT / token-free).
-    Source: cipher binary -> byte IDs (same as above)
-    Target: plaintext -> raw UTF-8 byte IDs (no tokenizer)
+    Source: cipher binary -> raw byte IDs (each bit as a byte: '0'->1, '1'->2, 0=PAD)
+    Target: plaintext -> raw UTF-8 byte IDs (byte_value + 1, 0=PAD)
     """
 
     def __init__(
@@ -173,16 +173,17 @@ class CipherToTextBLTDataset(Dataset):
         cipher = self.ciphers[idx]
         plain = self.plains[idx]
 
-        # Source: cipher -> byte IDs
-        src_ids = cipher_to_byte_ids(cipher)
-        src_ids = src_ids[: self.max_src_len]
+        # Source: each bit character '0' or '1' mapped to byte ID
+        # '0' -> 1, '1' -> 2  (0 reserved for PAD)
+        src_bytes = [int(b) + 1 for b in cipher]
+        src_bytes = src_bytes[: self.max_src_len]
 
         # Target: plaintext -> UTF-8 bytes, shifted +1 so 0=PAD
         tgt_bytes = [b + 1 for b in plain.encode("utf-8")]
         tgt_bytes = tgt_bytes[: self.max_tgt_len]
 
         return {
-            "src_bytes": torch.tensor(src_ids, dtype=torch.long),
+            "src_bytes": torch.tensor(src_bytes, dtype=torch.long),
             "tgt_bytes": torch.tensor(tgt_bytes, dtype=torch.long),
             "plain_text": plain,
         }
@@ -190,19 +191,29 @@ class CipherToTextBLTDataset(Dataset):
 
 # ---------- Collation (dynamic padding) ----------
 
-def collate_tokenized(batch: list[dict], pad_id: int = 0) -> dict:
-    """Collate function for CipherToTextDataset — pads to max length in batch."""
-    src_ids = [item["src_ids"] for item in batch]
-    tgt_ids = [item["tgt_ids"] for item in batch]
+class TokenizedCollator:
+    """Picklable collate function for tokenized dataset (supports num_workers > 0)."""
 
-    src_padded = torch.nn.utils.rnn.pad_sequence(src_ids, batch_first=True, padding_value=0)
-    tgt_padded = torch.nn.utils.rnn.pad_sequence(tgt_ids, batch_first=True, padding_value=pad_id)
+    def __init__(self, src_pad_id: int = 0, tgt_pad_id: int = 0):
+        self.src_pad_id = src_pad_id
+        self.tgt_pad_id = tgt_pad_id
 
-    return {
-        "src": src_padded,
-        "tgt": tgt_padded,
-        "plain_texts": [item["plain_text"] for item in batch],
-    }
+    def __call__(self, batch: list[dict]) -> dict:
+        src_ids = [item["src_ids"] for item in batch]
+        tgt_ids = [item["tgt_ids"] for item in batch]
+
+        src_padded = torch.nn.utils.rnn.pad_sequence(
+            src_ids, batch_first=True, padding_value=self.src_pad_id
+        )
+        tgt_padded = torch.nn.utils.rnn.pad_sequence(
+            tgt_ids, batch_first=True, padding_value=self.tgt_pad_id
+        )
+
+        return {
+            "src": src_padded,
+            "tgt": tgt_padded,
+            "plain_texts": [item["plain_text"] for item in batch],
+        }
 
 
 def collate_blt(batch: list[dict]) -> dict:
@@ -227,7 +238,9 @@ def collate_blt(batch: list[dict]) -> dict:
 
 
 def get_dataloaders(
-    config: dict, tokenizer: Tokenizer | None = None
+    config: dict,
+    src_tokenizer: BPETokenizer | None = None,
+    tgt_tokenizer: BPETokenizer | None = None,
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
     """
     Create train/val/test dataloaders based on config.
@@ -252,30 +265,30 @@ def get_dataloaders(
         }
         collate_fn = collate_blt
     else:
-        assert tokenizer is not None, "Tokenizer required for subword mode"
+        assert src_tokenizer is not None and tgt_tokenizer is not None, \
+            "Both tokenizers required for subword mode"
+        cache_dir = str(OUTPUT_DIR / "encoded_cache")
         datasets = {
-            split: CipherToTextDataset(c, p, tokenizer, max_src_len, max_tgt_len)
+            split: CipherToTextDataset(
+                c, p, src_tokenizer, tgt_tokenizer, max_src_len, max_tgt_len,
+                cache_path=os.path.join(cache_dir, f"{split}.json"),
+            )
             for split, (c, p) in splits.items()
         }
-        pad_id = tokenizer.token_to_id("<pad>")
-        #collate_fn = lambda batch: collate_tokenized(batch, pad_id)
-        collate_fn = partial(collate_tokenized, pad_id=pad_id)
-
-    # Auto-detect: 2 workers for Ada (CUDA), 0 workers for local Mac
-    num_workers = 2 if torch.cuda.is_available() else 0
+        collate_fn = TokenizedCollator(src_tokenizer.pad_id, tgt_tokenizer.pad_id)
 
     loaders = {
         "train": DataLoader(
             datasets["train"], batch_size=batch_size, shuffle=True,
-            collate_fn=collate_fn, num_workers=num_workers, pin_memory=True,
+            collate_fn=collate_fn, num_workers=2, pin_memory=True,
         ),
         "val": DataLoader(
             datasets["val"], batch_size=batch_size, shuffle=False,
-            collate_fn=collate_fn, num_workers=num_workers, pin_memory=True,
+            collate_fn=collate_fn, num_workers=2, pin_memory=True,
         ),
         "test": DataLoader(
             datasets["test"], batch_size=batch_size, shuffle=False,
-            collate_fn=collate_fn, num_workers=num_workers, pin_memory=True,
+            collate_fn=collate_fn, num_workers=2, pin_memory=True,
         ),
     }
 
