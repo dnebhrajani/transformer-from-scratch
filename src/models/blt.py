@@ -214,8 +214,16 @@ class LocalDecoder(nn.Module):
         if target_bytes is not None:
             # Teacher forcing: shift targets right within each patch
             # Reshape targets into patches
-            target_patches = target_bytes.view(batch_size, num_patches, self.patch_size)
+            # --- NEW PADDING FIX ---
+            # Ensure the sequence length is a perfect multiple of patch_size
+            remainder = target_bytes.size(1) % self.patch_size
+            if remainder != 0:
+                pad_len = self.patch_size - remainder
+                target_bytes = F.pad(target_bytes, (0, pad_len), value=0)
+                num_patches = target_bytes.size(1) // self.patch_size
 
+            target_patches = target_bytes.view(batch_size, num_patches, self.patch_size)
+            # -----------------------
             # Create input sequence for each patch: [patch_context, byte_0, ..., byte_{n-2}]
             # The patch context acts as the "start" signal
             byte_emb = self.byte_embedding(target_patches)  # (batch, num_patches, patch_size, d_model)

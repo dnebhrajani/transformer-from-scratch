@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 from .attention import MultiHeadAttention, GroupedQueryAttention, scaled_dot_product_attention
-from .positional import SinusoidalPositionalEncoding, RotaryPositionalEncoding, apply_rotary_pos_emb, _rotate_half
+from .positional import SinusoidalPositionalEncoding, RotaryPositionalEncoding, apply_rotary_pos_emb
 from .norm import LayerNorm, RMSNorm
 from .blt import LocalEncoder, LocalDecoder
 

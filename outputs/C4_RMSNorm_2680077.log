@@ -1,0 +1,160 @@
+==========================================
+SLURM_JOB_ID = 2680077
+SLURM_NODELIST = gnode087
+SLURM_JOB_GPUS = 3
+==========================================
+Starting training for config: C4
+Using device: cuda
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /home2/dnebhrajani/.netrc.
+wandb: Currently logged in as: dnebhrajani (dnebhrajani-v) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run pmawrcbu
+wandb: Tracking run with wandb version 0.29.0
+wandb: Run data is saved locally in /home2/dnebhrajani/assignments/wandb/run-20260828_050134-pmawrcbu
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run C4_rmsnorm
+wandb: ⭐️ View project at https://wandb.ai/dnebhrajani-v/anlp-transformer-from-scratch
+wandb: 🚀 View run at https://wandb.ai/dnebhrajani-v/anlp-transformer-from-scratch/runs/pmawrcbu
+Loaded tokenizers: src vocab=400, tgt vocab=400
+Source vocab size: 400
+Target vocab size: 400
+  Loaded encoded cache from /home2/dnebhrajani/assignments/outputs/encoded_cache/train.json (4000 samples)
+  Loaded encoded cache from /home2/dnebhrajani/assignments/outputs/encoded_cache/val.json (500 samples)
+  Loaded encoded cache from /home2/dnebhrajani/assignments/outputs/encoded_cache/test.json (500 samples)
+Train: 4000, Val: 500, Test: 500
+Model parameters: 7,675,792
+Epoch   1/50 | Train Loss: 5.6753 | Val Loss: 5.3742 | LR: 5.00e-05 | Time: 56.3s | Mem: 5160MB
+  -> Saved best model (val_loss=5.3742)
+Epoch   2/50 | Train Loss: 4.8516 | Val Loss: 4.4627 | LR: 1.00e-04 | Time: 44.5s | Mem: 5159MB
+  -> Saved best model (val_loss=4.4627)
+Epoch   3/50 | Train Loss: 4.3153 | Val Loss: 4.2749 | LR: 9.99e-05 | Time: 44.6s | Mem: 5159MB
+  -> Saved best model (val_loss=4.2749)
+Epoch   4/50 | Train Loss: 4.1708 | Val Loss: 4.2060 | LR: 9.96e-05 | Time: 44.5s | Mem: 5159MB
+  -> Saved best model (val_loss=4.2060)
+Epoch   5/50 | Train Loss: 4.0926 | Val Loss: 4.1643 | LR: 9.90e-05 | Time: 44.6s | Mem: 5159MB
+  -> Saved best model (val_loss=4.1643)
+Epoch   6/50 | Train Loss: 4.0382 | Val Loss: 4.1280 | LR: 9.83e-05 | Time: 44.5s | Mem: 5159MB
+  -> Saved best model (val_loss=4.1280)
+Epoch   7/50 | Train Loss: 3.9905 | Val Loss: 4.1016 | LR: 9.73e-05 | Time: 44.5s | Mem: 5160MB
+  -> Saved best model (val_loss=4.1016)
+Epoch   8/50 | Train Loss: 3.9437 | Val Loss: 4.0831 | LR: 9.62e-05 | Time: 44.6s | Mem: 5160MB
+  -> Saved best model (val_loss=4.0831)
+Epoch   9/50 | Train Loss: 3.8979 | Val Loss: 4.0540 | LR: 9.48e-05 | Time: 44.6s | Mem: 5159MB
+  -> Saved best model (val_loss=4.0540)
+Epoch  10/50 | Train Loss: 3.8534 | Val Loss: 4.0247 | LR: 9.33e-05 | Time: 44.6s | Mem: 5160MB
+  -> Saved best model (val_loss=4.0247)
+Epoch  11/50 | Train Loss: 3.8061 | Val Loss: 3.9972 | LR: 9.16e-05 | Time: 44.5s | Mem: 5159MB
+  -> Saved best model (val_loss=3.9972)
+Epoch  12/50 | Train Loss: 3.7620 | Val Loss: 3.9728 | LR: 8.97e-05 | Time: 44.7s | Mem: 5160MB
+  -> Saved best model (val_loss=3.9728)
+Epoch  13/50 | Train Loss: 3.7160 | Val Loss: 3.9382 | LR: 8.76e-05 | Time: 44.6s | Mem: 5159MB
+  -> Saved best model (val_loss=3.9382)
+Epoch  14/50 | Train Loss: 3.6680 | Val Loss: 3.9134 | LR: 8.54e-05 | Time: 44.8s | Mem: 5160MB
+  -> Saved best model (val_loss=3.9134)
+Epoch  15/50 | Train Loss: 3.6264 | Val Loss: 3.8836 | LR: 8.30e-05 | Time: 44.7s | Mem: 5159MB
+  -> Saved best model (val_loss=3.8836)
+Epoch  16/50 | Train Loss: 3.5824 | Val Loss: 3.8523 | LR: 8.04e-05 | Time: 44.6s | Mem: 5159MB
+  -> Saved best model (val_loss=3.8523)
+Epoch  17/50 | Train Loss: 3.5405 | Val Loss: 3.8343 | LR: 7.78e-05 | Time: 44.6s | Mem: 5159MB
+  -> Saved best model (val_loss=3.8343)
+Epoch  18/50 | Train Loss: 3.5027 | Val Loss: 3.8124 | LR: 7.50e-05 | Time: 44.1s | Mem: 5159MB
+  -> Saved best model (val_loss=3.8124)
+Epoch  19/50 | Train Loss: 3.4664 | Val Loss: 3.7845 | LR: 7.21e-05 | Time: 44.6s | Mem: 5159MB
+  -> Saved best model (val_loss=3.7845)
+Epoch  20/50 | Train Loss: 3.4291 | Val Loss: 3.7776 | LR: 6.91e-05 | Time: 44.5s | Mem: 5160MB
+  -> Saved best model (val_loss=3.7776)
+Epoch  21/50 | Train Loss: 3.3973 | Val Loss: 3.7526 | LR: 6.61e-05 | Time: 44.7s | Mem: 5159MB
+  -> Saved best model (val_loss=3.7526)
+Epoch  22/50 | Train Loss: 3.3636 | Val Loss: 3.7416 | LR: 6.29e-05 | Time: 44.7s | Mem: 5160MB
+  -> Saved best model (val_loss=3.7416)
+Epoch  23/50 | Train Loss: 3.3352 | Val Loss: 3.7241 | LR: 5.98e-05 | Time: 44.7s | Mem: 5159MB
+  -> Saved best model (val_loss=3.7241)
+Epoch  24/50 | Train Loss: 3.3074 | Val Loss: 3.7169 | LR: 5.65e-05 | Time: 43.5s | Mem: 5160MB
+  -> Saved best model (val_loss=3.7169)
+Epoch  25/50 | Train Loss: 3.2814 | Val Loss: 3.7009 | LR: 5.33e-05 | Time: 44.8s | Mem: 5159MB
+  -> Saved best model (val_loss=3.7009)
+Epoch  26/50 | Train Loss: 3.2571 | Val Loss: 3.6917 | LR: 5.00e-05 | Time: 44.8s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6917)
+Epoch  27/50 | Train Loss: 3.2352 | Val Loss: 3.6790 | LR: 4.67e-05 | Time: 44.8s | Mem: 5160MB
+  -> Saved best model (val_loss=3.6790)
+Epoch  28/50 | Train Loss: 3.2119 | Val Loss: 3.6702 | LR: 4.35e-05 | Time: 44.7s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6702)
+Epoch  29/50 | Train Loss: 3.1956 | Val Loss: 3.6639 | LR: 4.02e-05 | Time: 44.4s | Mem: 5160MB
+  -> Saved best model (val_loss=3.6639)
+Epoch  30/50 | Train Loss: 3.1775 | Val Loss: 3.6571 | LR: 3.71e-05 | Time: 44.4s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6571)
+Epoch  31/50 | Train Loss: 3.1604 | Val Loss: 3.6481 | LR: 3.39e-05 | Time: 44.6s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6481)
+Epoch  32/50 | Train Loss: 3.1468 | Val Loss: 3.6472 | LR: 3.09e-05 | Time: 44.7s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6472)
+Epoch  33/50 | Train Loss: 3.1314 | Val Loss: 3.6451 | LR: 2.79e-05 | Time: 44.6s | Mem: 5160MB
+  -> Saved best model (val_loss=3.6451)
+Epoch  34/50 | Train Loss: 3.1196 | Val Loss: 3.6335 | LR: 2.50e-05 | Time: 44.7s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6335)
+Epoch  35/50 | Train Loss: 3.1094 | Val Loss: 3.6347 | LR: 2.22e-05 | Time: 44.8s | Mem: 5159MB
+Epoch  36/50 | Train Loss: 3.0989 | Val Loss: 3.6300 | LR: 1.96e-05 | Time: 44.6s | Mem: 5160MB
+  -> Saved best model (val_loss=3.6300)
+Epoch  37/50 | Train Loss: 3.0901 | Val Loss: 3.6294 | LR: 1.70e-05 | Time: 44.5s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6294)
+Epoch  38/50 | Train Loss: 3.0825 | Val Loss: 3.6279 | LR: 1.46e-05 | Time: 44.9s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6279)
+Epoch  39/50 | Train Loss: 3.0758 | Val Loss: 3.6234 | LR: 1.24e-05 | Time: 44.8s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6234)
+Epoch  40/50 | Train Loss: 3.0692 | Val Loss: 3.6241 | LR: 1.03e-05 | Time: 44.6s | Mem: 5160MB
+Epoch  41/50 | Train Loss: 3.0658 | Val Loss: 3.6216 | LR: 8.43e-06 | Time: 44.6s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6216)
+Epoch  42/50 | Train Loss: 3.0583 | Val Loss: 3.6217 | LR: 6.70e-06 | Time: 44.4s | Mem: 5159MB
+Epoch  43/50 | Train Loss: 3.0575 | Val Loss: 3.6191 | LR: 5.16e-06 | Time: 44.6s | Mem: 5160MB
+  -> Saved best model (val_loss=3.6191)
+Epoch  44/50 | Train Loss: 3.0524 | Val Loss: 3.6211 | LR: 3.81e-06 | Time: 44.6s | Mem: 5159MB
+Epoch  45/50 | Train Loss: 3.0496 | Val Loss: 3.6194 | LR: 2.65e-06 | Time: 44.4s | Mem: 5159MB
+Epoch  46/50 | Train Loss: 3.0494 | Val Loss: 3.6188 | LR: 1.70e-06 | Time: 44.6s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6188)
+Epoch  47/50 | Train Loss: 3.0458 | Val Loss: 3.6191 | LR: 9.61e-07 | Time: 44.7s | Mem: 5160MB
+Epoch  48/50 | Train Loss: 3.0479 | Val Loss: 3.6186 | LR: 4.28e-07 | Time: 44.5s | Mem: 5159MB
+  -> Saved best model (val_loss=3.6186)
+Epoch  49/50 | Train Loss: 3.0461 | Val Loss: 3.6189 | LR: 1.07e-07 | Time: 44.5s | Mem: 5160MB
+Epoch  50/50 | Train Loss: 3.0462 | Val Loss: 3.6189 | LR: 0.00e+00 | Time: 44.4s | Mem: 5159MB
+
+=== Test Set Evaluation ===
+  bit_level_accuracy: 0.6446
+  sequence_accuracy: 0.0000
+  avg_levenshtein: 588.9280
+  bleu: 0.0002
+  rouge_l_f1: 0.1193
+  rouge_l_precision: 0.1190
+  rouge_l_recall: 0.1280
+wandb: updating run metadata
+wandb: uploading config.yaml; uploading output.log; uploading wandb-summary.json
+wandb: uploading config.yaml; uploading output.log
+wandb: uploading history steps 51-51, summary, console lines 102-108
+wandb: 
+wandb: Run history:
+wandb:                   epoch ▁▁▁▁▂▂▂▂▂▃▃▃▃▃▃▄▄▄▄▄▅▅▅▅▅▆▆▆▆▆▆▇▇▇▇▇▇███
+wandb:            epoch_time_s █▂▂▂▂▂▂▂▂▂▂▂▂▂▁▂▂▂▂▁▂▂▂▁▂▂▂▂▂▂▂▂▂▁▂▁▂▂▂▁
+wandb:           learning_rate ▅███████▇▇▇▇▇▆▆▆▆▅▅▅▄▄▄▄▃▃▃▃▂▂▂▂▂▁▁▁▁▁▁▁
+wandb:          num_parameters ▁
+wandb:      peak_gpu_memory_mb █▄▄▁▄▇▆▁▇▄▄█▃▂▄▄█▄▇▃▄█▅▄▃▆▄▃▆▄▄▇▄▄▆▁▄▇▄▃
+wandb:    test/avg_levenshtein ▁
+wandb: test/bit_level_accuracy ▁
+wandb:               test/bleu ▁
+wandb:         test/rouge_l_f1 ▁
+wandb:  test/rouge_l_precision ▁
+wandb:                      +4 ...
+wandb: 
+wandb: Run summary:
+wandb:                   epoch 50
+wandb:            epoch_time_s 44.35674
+wandb:           learning_rate 0
+wandb:          num_parameters 7675792
+wandb:      peak_gpu_memory_mb 5159.24121
+wandb:    test/avg_levenshtein 588.928
+wandb: test/bit_level_accuracy 0.64457
+wandb:               test/bleu 0.00024
+wandb:         test/rouge_l_f1 0.11928
+wandb:  test/rouge_l_precision 0.11903
+wandb:                      +4 ...
+wandb: 
+wandb: 🚀 View run C4_rmsnorm at: https://wandb.ai/dnebhrajani-v/anlp-transformer-from-scratch/runs/pmawrcbu
+wandb: ⭐️ View project at: https://wandb.ai/dnebhrajani-v/anlp-transformer-from-scratch
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20260828_050134-pmawrcbu/logs

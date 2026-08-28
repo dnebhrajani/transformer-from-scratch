@@ -1,0 +1,9 @@
+{
+  "bit_level_accuracy": 0.6502282152370038,
+  "sequence_accuracy": 0.0,
+  "avg_levenshtein": 570.758,
+  "bleu": 0.0003948238207768401,
+  "rouge_l_f1": 0.13315752442257422,
+  "rouge_l_precision": 0.13113583144374008,
+  "rouge_l_recall": 0.14481005004348813
+}
