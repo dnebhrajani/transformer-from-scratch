@@ -1,6 +1,5 @@
 # Assignment 1: Transformers from Scratch & BLT
 **Author:** Durga Nebhrajani
-**Roll Number:** 2024101144
 
 ## Links
 * **Weights & Biases Dashboard:** https://api.wandb.ai/links/dnebhrajani-v/xwjp7e0c
