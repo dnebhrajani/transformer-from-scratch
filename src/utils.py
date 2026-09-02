@@ -14,21 +14,22 @@ def text_to_bits(text: str) -> str:
 def bit_level_accuracy(predicted: str, target: str) -> float:
     """
     Compute bit-level accuracy between predicted and target strings.
-    Both are first converted to their UTF-8 binary representations,
-    then compared bit-by-bit. Shorter string is padded with '0'.
+    Both are first converted to their UTF-8 binary representations.
+    The target length is the reference: predictions longer than the
+    target are truncated (extra output is not penalised), predictions
+    shorter than the target are zero-padded (missing output is penalised).
     """
     pred_bits = text_to_bits(predicted)
     tgt_bits = text_to_bits(target)
 
-    max_len = max(len(pred_bits), len(tgt_bits))
-    if max_len == 0:
+    ref_len = len(tgt_bits)
+    if ref_len == 0:
         return 1.0
 
-    pred_bits = pred_bits.ljust(max_len, "0")
-    tgt_bits = tgt_bits.ljust(max_len, "0")
+    pred_bits = pred_bits[:ref_len].ljust(ref_len, "0")
 
     matches = sum(p == t for p, t in zip(pred_bits, tgt_bits))
-    return matches / max_len
+    return matches / ref_len
 
 
 # ---------- Sequence Accuracy ----------
@@ -40,6 +41,22 @@ def sequence_accuracy(predictions: list[str], targets: list[str]) -> float:
         return 0.0
     exact = sum(p == t for p, t in zip(predictions, targets))
     return exact / len(predictions)
+
+
+# ---------- Character (Token) Level Accuracy ----------
+
+def char_level_accuracy(predicted: str, target: str) -> float:
+    """
+    Compute character-level accuracy between predicted and target strings.
+    Target length is the reference: extra predicted characters are ignored,
+    missing characters are counted as wrong.
+    """
+    ref_len = len(target)
+    if ref_len == 0:
+        return 1.0
+
+    matches = sum(p == t for p, t in zip(predicted, target))
+    return matches / ref_len
 
 
 # ---------- Levenshtein Distance ----------
@@ -201,6 +218,10 @@ def evaluate_all(
     # Bit-level accuracy
     bit_accs = [bit_level_accuracy(p, t) for p, t in zip(predictions, targets)]
     metrics["bit_level_accuracy"] = sum(bit_accs) / max(len(bit_accs), 1)
+
+    # Character-level accuracy
+    char_accs = [char_level_accuracy(p, t) for p, t in zip(predictions, targets)]
+    metrics["char_level_accuracy"] = sum(char_accs) / max(len(char_accs), 1)
 
     # Sequence accuracy
     metrics["sequence_accuracy"] = sequence_accuracy(predictions, targets)

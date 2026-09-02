@@ -61,7 +61,7 @@ class RotaryPositionalEncoding(nn.Module):
         self._build_cache(max_len)
 
     def _build_cache(self, max_len: int):
-        positions = torch.arange(max_len, dtype=torch.float32)
+        positions = torch.arange(max_len, dtype=torch.float32, device=self.inv_freq.device)
         # (max_len, d_k/2)
         freqs = torch.outer(positions, self.inv_freq)
         # (max_len, d_k) — interleaved cos and sin

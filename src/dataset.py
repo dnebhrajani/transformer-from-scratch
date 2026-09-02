@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from tokenizer import BPETokenizer, train_cipher_tokenizer, train_plaintext_tokenizer
+from tokenizer import BPETokenizer, train_cipher_tokenizer, train_plaintext_tokenizer, cipher_bits_to_byte_str
 
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "Dataset_A1"
@@ -38,6 +38,37 @@ def train_val_test_split(
         "val": (ciphers[train_end:val_end], plains[train_end:val_end]),
         "test": (ciphers[val_end:], plains[val_end:]),
     }
+
+def segment_pairs(
+    ciphers: list[str], plains: list[str], segment_bytes: int = 128
+) -> tuple[list[str], list[str]]:
+    """Split cipher/plain pairs into fixed-size segments.
+
+    Each original example is split into segments of `segment_bytes` plaintext
+    characters.  The cipher is split at corresponding bit boundaries (8 bits
+    per byte).  Brown corpus is pure ASCII so character = byte.
+
+    Segments are aligned so that each segment starts at a position that is
+    a multiple of `segment_bytes` within the original text.  Since
+    `segment_bytes` should be a multiple of 8 (the XOR key length), every
+    segment starts with the same key offset, simplifying the task.
+
+    Applied **after** train/val/test split to prevent data leakage.
+    """
+    seg_ciphers: list[str] = []
+    seg_plains: list[str] = []
+
+    for cipher, plain in zip(ciphers, plains):
+        n = len(plain)
+        for start in range(0, n, segment_bytes):
+            end = min(start + segment_bytes, n)
+            chunk_plain = plain[start:end]
+            chunk_cipher = cipher[start * 8 : end * 8]
+            if len(chunk_plain) >= 8:  # at least 1 full key cycle
+                seg_ciphers.append(chunk_cipher)
+                seg_plains.append(chunk_plain)
+
+    return seg_ciphers, seg_plains
 
 
 # ---------- Tokenizer Management ----------
@@ -73,6 +104,70 @@ def get_or_train_tokenizers(
         print(f"  Target vocab size: {tgt_tokenizer.get_vocab_size()}")
 
     return src_tokenizer, tgt_tokenizer
+
+def test_tokenizer_roundtrip(
+    ciphers: list[str],
+    plains: list[str],
+    src_tokenizer: BPETokenizer,
+    tgt_tokenizer: BPETokenizer,
+    segment_bytes: int = 128,
+):
+    """Verify that tokenization + decoding preserves the data exactly."""
+
+    print("\n" + "=" * 60)
+    print("TOKENIZER ROUND-TRIP TEST")
+    print("=" * 60)
+
+    # Use exactly the same segmentation as training
+    cipher_segments, plain_segments = segment_pairs(
+        ciphers,
+        plains,
+        segment_bytes=segment_bytes,
+    )
+
+    cipher = cipher_segments[0]
+    plain = plain_segments[0]
+
+    # ---------------- SOURCE ----------------
+    byte_str = cipher_bits_to_byte_str(cipher)
+
+    src_ids = src_tokenizer.encode(
+        byte_str,
+        add_special_tokens=True,
+    )
+
+    decoded_cipher = src_tokenizer.decode(src_ids)
+
+    print("\nSOURCE / CIPHERTEXT")
+    print(f"Cipher bits:  {len(cipher)}")
+    print(f"Cipher bytes: {len(byte_str)}")
+    print(f"Token count:  {len(src_ids)}")
+    print(f"Round-trip:   {byte_str == decoded_cipher}")
+
+    if byte_str != decoded_cipher:
+        print("ERROR: Cipher BPE does NOT round-trip!")
+        print(f"Original length: {len(byte_str)}")
+        print(f"Decoded length:  {len(decoded_cipher)}")
+
+    # ---------------- TARGET ----------------
+    tgt_ids = tgt_tokenizer.encode(
+        plain,
+        add_special_tokens=True,
+    )
+
+    decoded_plain = tgt_tokenizer.decode(tgt_ids)
+
+    print("\nTARGET / PLAINTEXT")
+    print(f"Plain length: {len(plain)}")
+    print(f"Token count:  {len(tgt_ids)}")
+    print(f"Round-trip:   {plain == decoded_plain}")
+
+    if plain != decoded_plain:
+        print("ERROR: Plaintext BPE does NOT round-trip!")
+        print(f"Original: {repr(plain)}")
+        print(f"Decoded:  {repr(decoded_plain)}")
+
+    print("\n" + "=" * 60)
 
 
 # ---------- Datasets ----------
@@ -111,14 +206,15 @@ class CipherToTextDataset(Dataset):
             return
 
         # Pre-encode all sequences
-        avg_bits_per_token = 10
-        max_raw_bits = max_src_len * avg_bits_per_token
-
-        print(f"  Encoding {len(ciphers)} sequences (this may take 1-2 min)...")
+        # Encode the FULL cipher (no bit-level truncation) so the model
+        # sees as much source information as possible; only truncate at
+        # the BPE-token level to max_src_len.
+        print(f"  Encoding {len(ciphers)} sequences (this may take a few min)...")
         self.src_encoded = []
         for i, cipher in enumerate(ciphers):
-            truncated = cipher[:max_raw_bits]
-            ids = src_tokenizer.encode(truncated, add_special_tokens=True)
+            # Convert binary cipher to byte-level string for byte-aligned BPE
+            byte_str = cipher_bits_to_byte_str(cipher)
+            ids = src_tokenizer.encode(byte_str, add_special_tokens=True)
             self.src_encoded.append(ids[:max_src_len])
             if (i + 1) % 500 == 0:
                 print(f"    {i+1}/{len(ciphers)} encoded...")
@@ -253,6 +349,25 @@ def get_dataloaders(
     """
     ciphers, plains = load_raw_data()
     splits = train_val_test_split(ciphers, plains)
+
+    # --- Dataset segmentation (applied consistently to all splits) ---
+    segment_bytes = config.get("segment_bytes", 0)
+    if segment_bytes > 0:
+        splits = {
+            name: segment_pairs(c, p, segment_bytes)
+            for name, (c, p) in splits.items()
+        }
+        for name, (c, p) in splits.items():
+            print(f"  {name}: {len(c)} segments (segment_bytes={segment_bytes})")
+    
+    if config.get("tokenization", "subword") != "blt":
+        test_tokenizer_roundtrip(
+            splits["train"][0],
+            splits["train"][1],
+            src_tokenizer,
+            tgt_tokenizer,
+            segment_bytes=segment_bytes,
+        )
 
     batch_size = config.get("batch_size", 16)
     max_src_len = config.get("max_src_len", 512)

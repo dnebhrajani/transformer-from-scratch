@@ -276,37 +276,58 @@ class BPETokenizer:
         tokenizer.id_to_token = {int(v): k for k, v in tokenizer.vocab.items()}
         return tokenizer
 
+def cipher_bits_to_byte_str(bits: str) -> str:
+    """Convert a binary cipher string to a byte-level character string for BPE.
+
+    Each group of 8 bits is converted to a unique Unicode character in the
+    range U+0100–U+01FF (Latin Extended-A/B), avoiding collisions with ASCII
+    and special tokens.  Any trailing bits that don't form a complete byte
+    are dropped (this mirrors the dataset's byte-aligned cipher generation).
+    """
+    chars = []
+    for i in range(0, len(bits) - 7, 8):
+        byte_val = int(bits[i : i + 8], 2)
+        chars.append(chr(byte_val + 0x100))  # U+0100 to U+01FF
+    return "".join(chars)
+
 
 def train_cipher_tokenizer(
-    cipher_texts: list[str], vocab_size: int = 400
+    cipher_texts: list[str], vocab_size: int = 4000
 ) -> BPETokenizer:
     """
-    Train a BPE tokenizer on cipher binary strings.
+    Train a BPE tokenizer on cipher binary strings using **byte-level** BPE.
 
-    The initial vocabulary is {'0', '1'} + special tokens.
-    BPE learns to merge frequent bit patterns into subword tokens.
+    Pipeline:
+        1. Convert each binary cipher string to a byte-level character string
+           (every 8 bits → 1 Unicode character).
+        2. Chunk into segments for BPE training.
+        3. Run standard BPE to learn common byte n-gram merges.
 
-    We chunk long cipher strings and sample to keep training tractable.
+    The resulting tokenization is byte-aligned by construction, which is
+    critical for the XOR cipher task: each token boundary falls on a byte
+    boundary, so the model can learn the 8-byte repeating key pattern directly.
     """
     import random
     random.seed(42)
 
-    # Chunk cipher strings into fixed-size segments for BPE training
-    CHUNK_SIZE = 64
-    MAX_CHUNKS = 50000  # cap for training efficiency
+    # Step 1: Convert binary strings to byte-level character strings
+    byte_corpus = [cipher_bits_to_byte_str(text) for text in cipher_texts]
+
+    # Step 2: Chunk byte-level strings for BPE training
+    CHUNK_SIZE = 64  # 64 bytes = 8 full key cycles, good context window
+    MAX_CHUNKS = 50000
 
     chunked_corpus = []
-    for text in cipher_texts:
+    for text in byte_corpus:
         for i in range(0, len(text), CHUNK_SIZE):
             chunk = text[i : i + CHUNK_SIZE]
-            if len(chunk) >= 16:
+            if len(chunk) >= 2:
                 chunked_corpus.append(chunk)
 
-    # Subsample if too many chunks
     if len(chunked_corpus) > MAX_CHUNKS:
         chunked_corpus = random.sample(chunked_corpus, MAX_CHUNKS)
 
-    print(f"  Cipher BPE training on {len(chunked_corpus)} chunks (chunk_size={CHUNK_SIZE})")
+    print(f"  Cipher byte-level BPE training on {len(chunked_corpus)} chunks (chunk_size={CHUNK_SIZE} bytes)")
 
     tokenizer = BPETokenizer(
         vocab_size=vocab_size,
@@ -315,6 +336,7 @@ def train_cipher_tokenizer(
     )
     tokenizer.train(chunked_corpus)
     return tokenizer
+
 
 
 def train_plaintext_tokenizer(

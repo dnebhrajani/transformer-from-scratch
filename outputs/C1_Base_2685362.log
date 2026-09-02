@@ -1,0 +1,315 @@
+==========================================
+SLURM_JOB_ID = 2685362
+SLURM_NODELIST = gnode002
+SLURM_JOB_GPUS = 1
+==========================================
+Starting training for config: C1
+Using device: cuda
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /home2/dnebhrajani/.netrc.
+wandb: Currently logged in as: dnebhrajani (dnebhrajani-v) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run jz4j1cni
+wandb: Tracking run with wandb version 0.29.0
+wandb: Run data is saved locally in /home2/dnebhrajani/transformer-from-scratch/wandb/run-20260902_024952-jz4j1cni
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run C1_base
+wandb: ⭐️ View project at https://wandb.ai/dnebhrajani-v/anlp-transformer-from-scratch
+wandb: 🚀 View run at https://wandb.ai/dnebhrajani-v/anlp-transformer-from-scratch/runs/jz4j1cni
+Training source BPE tokenizer on cipher texts...
+  Cipher byte-level BPE training on 49070 chunks (chunk_size=64 bytes)
+  Source vocab size: 4000
+Training target BPE tokenizer on plaintext...
+  Target vocab size: 4000
+Source vocab size: 4000
+Target vocab size: 4000
+  train: 19949 segments (segment_bytes=128)
+  val: 2813 segments (segment_bytes=128)
+  test: 2842 segments (segment_bytes=128)
+
+============================================================
+TOKENIZER ROUND-TRIP TEST
+============================================================
+
+SOURCE / CIPHERTEXT
+Cipher bits:  1024
+Cipher bytes: 128
+Token count:  52
+Round-trip:   True
+
+TARGET / PLAINTEXT
+Plain length: 128
+Token count:  34
+Round-trip:   True
+
+============================================================
+  Encoding 19949 sequences (this may take a few min)...
+    500/19949 encoded...
+    1000/19949 encoded...
+    1500/19949 encoded...
+    2000/19949 encoded...
+    2500/19949 encoded...
+    3000/19949 encoded...
+    3500/19949 encoded...
+    4000/19949 encoded...
+    4500/19949 encoded...
+    5000/19949 encoded...
+    5500/19949 encoded...
+    6000/19949 encoded...
+    6500/19949 encoded...
+    7000/19949 encoded...
+    7500/19949 encoded...
+    8000/19949 encoded...
+    8500/19949 encoded...
+    9000/19949 encoded...
+    9500/19949 encoded...
+    10000/19949 encoded...
+    10500/19949 encoded...
+    11000/19949 encoded...
+    11500/19949 encoded...
+    12000/19949 encoded...
+    12500/19949 encoded...
+    13000/19949 encoded...
+    13500/19949 encoded...
+    14000/19949 encoded...
+    14500/19949 encoded...
+    15000/19949 encoded...
+    15500/19949 encoded...
+    16000/19949 encoded...
+    16500/19949 encoded...
+    17000/19949 encoded...
+    17500/19949 encoded...
+    18000/19949 encoded...
+    18500/19949 encoded...
+    19000/19949 encoded...
+    19500/19949 encoded...
+  Saved encoded cache to /home2/dnebhrajani/transformer-from-scratch/outputs/encoded_cache/train.json
+  Encoding 2813 sequences (this may take a few min)...
+    500/2813 encoded...
+    1000/2813 encoded...
+    1500/2813 encoded...
+    2000/2813 encoded...
+    2500/2813 encoded...
+  Saved encoded cache to /home2/dnebhrajani/transformer-from-scratch/outputs/encoded_cache/val.json
+  Encoding 2842 sequences (this may take a few min)...
+    500/2842 encoded...
+    1000/2842 encoded...
+    1500/2842 encoded...
+    2000/2842 encoded...
+    2500/2842 encoded...
+  Saved encoded cache to /home2/dnebhrajani/transformer-from-scratch/outputs/encoded_cache/test.json
+Train: 19949, Val: 2813, Test: 2842
+Model parameters: 10,449,824
+Epoch   1/100 | Train Loss: 7.0176 | Val Loss: 6.4438 | LR: 3.00e-04 | Time: 41.2s | Mem: 1471MB
+  -> Saved best model (val_loss=6.4438)
+Epoch   2/100 | Train Loss: 5.7617 | Val Loss: 5.4513 | LR: 3.00e-04 | Time: 40.3s | Mem: 1471MB
+  -> Saved best model (val_loss=5.4513)
+Epoch   3/100 | Train Loss: 4.8006 | Val Loss: 4.7382 | LR: 3.00e-04 | Time: 40.0s | Mem: 1471MB
+  -> Saved best model (val_loss=4.7382)
+Epoch   4/100 | Train Loss: 4.0085 | Val Loss: 3.9655 | LR: 2.99e-04 | Time: 39.5s | Mem: 1471MB
+  -> Saved best model (val_loss=3.9655)
+Epoch   5/100 | Train Loss: 3.2251 | Val Loss: 3.2876 | LR: 2.99e-04 | Time: 41.1s | Mem: 1471MB
+  -> Saved best model (val_loss=3.2876)
+Epoch   6/100 | Train Loss: 2.6169 | Val Loss: 2.7024 | LR: 2.98e-04 | Time: 40.2s | Mem: 1471MB
+  -> Saved best model (val_loss=2.7024)
+Epoch   7/100 | Train Loss: 2.2181 | Val Loss: 2.3773 | LR: 2.97e-04 | Time: 41.1s | Mem: 1471MB
+  -> Saved best model (val_loss=2.3773)
+Epoch   8/100 | Train Loss: 1.9769 | Val Loss: 2.1859 | LR: 2.96e-04 | Time: 40.8s | Mem: 1472MB
+  -> Saved best model (val_loss=2.1859)
+Epoch   9/100 | Train Loss: 1.8257 | Val Loss: 2.0407 | LR: 2.95e-04 | Time: 39.9s | Mem: 1471MB
+  -> Saved best model (val_loss=2.0407)
+Epoch  10/100 | Train Loss: 1.7231 | Val Loss: 1.9786 | LR: 2.94e-04 | Time: 40.0s | Mem: 1471MB
+  -> Saved best model (val_loss=1.9786)
+Epoch  11/100 | Train Loss: 1.6481 | Val Loss: 1.9147 | LR: 2.92e-04 | Time: 40.8s | Mem: 1471MB
+  -> Saved best model (val_loss=1.9147)
+Epoch  12/100 | Train Loss: 1.5893 | Val Loss: 1.8683 | LR: 2.91e-04 | Time: 40.3s | Mem: 1471MB
+  -> Saved best model (val_loss=1.8683)
+Epoch  13/100 | Train Loss: 1.5436 | Val Loss: 1.8376 | LR: 2.89e-04 | Time: 38.5s | Mem: 1471MB
+  -> Saved best model (val_loss=1.8376)
+Epoch  14/100 | Train Loss: 1.5083 | Val Loss: 1.8031 | LR: 2.87e-04 | Time: 40.1s | Mem: 1471MB
+  -> Saved best model (val_loss=1.8031)
+Epoch  15/100 | Train Loss: 1.4787 | Val Loss: 1.7885 | LR: 2.85e-04 | Time: 40.4s | Mem: 1471MB
+  -> Saved best model (val_loss=1.7885)
+Epoch  16/100 | Train Loss: 1.4539 | Val Loss: 1.7665 | LR: 2.83e-04 | Time: 39.1s | Mem: 1471MB
+  -> Saved best model (val_loss=1.7665)
+Epoch  17/100 | Train Loss: 1.4333 | Val Loss: 1.7520 | LR: 2.81e-04 | Time: 33.0s | Mem: 1471MB
+  -> Saved best model (val_loss=1.7520)
+Epoch  18/100 | Train Loss: 1.4145 | Val Loss: 1.7392 | LR: 2.78e-04 | Time: 40.8s | Mem: 1471MB
+  -> Saved best model (val_loss=1.7392)
+Epoch  19/100 | Train Loss: 1.3992 | Val Loss: 1.7271 | LR: 2.76e-04 | Time: 40.3s | Mem: 1471MB
+  -> Saved best model (val_loss=1.7271)
+Epoch  20/100 | Train Loss: 1.3864 | Val Loss: 1.7085 | LR: 2.73e-04 | Time: 40.2s | Mem: 1471MB
+  -> Saved best model (val_loss=1.7085)
+Epoch  21/100 | Train Loss: 1.3734 | Val Loss: 1.6977 | LR: 2.70e-04 | Time: 40.0s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6977)
+Epoch  22/100 | Train Loss: 1.3625 | Val Loss: 1.6831 | LR: 2.67e-04 | Time: 39.7s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6831)
+Epoch  23/100 | Train Loss: 1.3518 | Val Loss: 1.6780 | LR: 2.64e-04 | Time: 40.8s | Mem: 1470MB
+  -> Saved best model (val_loss=1.6780)
+Epoch  24/100 | Train Loss: 1.3456 | Val Loss: 1.6707 | LR: 2.61e-04 | Time: 40.6s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6707)
+Epoch  25/100 | Train Loss: 1.3378 | Val Loss: 1.6698 | LR: 2.58e-04 | Time: 39.6s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6698)
+Epoch  26/100 | Train Loss: 1.3275 | Val Loss: 1.6499 | LR: 2.55e-04 | Time: 40.2s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6499)
+Epoch  27/100 | Train Loss: 1.3215 | Val Loss: 1.6471 | LR: 2.51e-04 | Time: 40.7s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6471)
+Epoch  28/100 | Train Loss: 1.3162 | Val Loss: 1.6473 | LR: 2.48e-04 | Time: 39.8s | Mem: 1471MB
+Epoch  29/100 | Train Loss: 1.3111 | Val Loss: 1.6382 | LR: 2.44e-04 | Time: 40.8s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6382)
+Epoch  30/100 | Train Loss: 1.3065 | Val Loss: 1.6340 | LR: 2.40e-04 | Time: 40.7s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6340)
+Epoch  31/100 | Train Loss: 1.2997 | Val Loss: 1.6257 | LR: 2.36e-04 | Time: 40.6s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6257)
+Epoch  32/100 | Train Loss: 1.2966 | Val Loss: 1.6142 | LR: 2.33e-04 | Time: 39.8s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6142)
+Epoch  33/100 | Train Loss: 1.2910 | Val Loss: 1.6025 | LR: 2.29e-04 | Time: 39.7s | Mem: 1471MB
+  -> Saved best model (val_loss=1.6025)
+Epoch  34/100 | Train Loss: 1.2874 | Val Loss: 1.5990 | LR: 2.24e-04 | Time: 38.2s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5990)
+Epoch  35/100 | Train Loss: 1.2831 | Val Loss: 1.5900 | LR: 2.20e-04 | Time: 41.0s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5900)
+Epoch  36/100 | Train Loss: 1.2808 | Val Loss: 1.5904 | LR: 2.16e-04 | Time: 40.6s | Mem: 1471MB
+Epoch  37/100 | Train Loss: 1.2770 | Val Loss: 1.5786 | LR: 2.12e-04 | Time: 39.8s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5786)
+Epoch  38/100 | Train Loss: 1.2730 | Val Loss: 1.5766 | LR: 2.07e-04 | Time: 40.0s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5766)
+Epoch  39/100 | Train Loss: 1.2698 | Val Loss: 1.5755 | LR: 2.03e-04 | Time: 40.6s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5755)
+Epoch  40/100 | Train Loss: 1.2678 | Val Loss: 1.5682 | LR: 1.99e-04 | Time: 40.2s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5682)
+Epoch  41/100 | Train Loss: 1.2649 | Val Loss: 1.5591 | LR: 1.94e-04 | Time: 39.3s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5591)
+Epoch  42/100 | Train Loss: 1.2615 | Val Loss: 1.5611 | LR: 1.89e-04 | Time: 40.1s | Mem: 1471MB
+Epoch  43/100 | Train Loss: 1.2591 | Val Loss: 1.5485 | LR: 1.85e-04 | Time: 34.1s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5485)
+Epoch  44/100 | Train Loss: 1.2567 | Val Loss: 1.5529 | LR: 1.80e-04 | Time: 38.3s | Mem: 1471MB
+Epoch  45/100 | Train Loss: 1.2538 | Val Loss: 1.5559 | LR: 1.76e-04 | Time: 37.1s | Mem: 1471MB
+Epoch  46/100 | Train Loss: 1.2518 | Val Loss: 1.5381 | LR: 1.71e-04 | Time: 40.1s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5381)
+Epoch  47/100 | Train Loss: 1.2510 | Val Loss: 1.5393 | LR: 1.66e-04 | Time: 40.0s | Mem: 1471MB
+Epoch  48/100 | Train Loss: 1.2473 | Val Loss: 1.5332 | LR: 1.61e-04 | Time: 37.8s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5332)
+Epoch  49/100 | Train Loss: 1.2455 | Val Loss: 1.5323 | LR: 1.57e-04 | Time: 39.8s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5323)
+Epoch  50/100 | Train Loss: 1.2439 | Val Loss: 1.5311 | LR: 1.52e-04 | Time: 36.3s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5311)
+Epoch  51/100 | Train Loss: 1.2422 | Val Loss: 1.5233 | LR: 1.47e-04 | Time: 37.8s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5233)
+Epoch  52/100 | Train Loss: 1.2405 | Val Loss: 1.5197 | LR: 1.42e-04 | Time: 38.7s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5197)
+Epoch  53/100 | Train Loss: 1.2387 | Val Loss: 1.5114 | LR: 1.38e-04 | Time: 39.4s | Mem: 1472MB
+  -> Saved best model (val_loss=1.5114)
+Epoch  54/100 | Train Loss: 1.2367 | Val Loss: 1.5070 | LR: 1.33e-04 | Time: 38.6s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5070)
+Epoch  55/100 | Train Loss: 1.2349 | Val Loss: 1.5075 | LR: 1.28e-04 | Time: 40.2s | Mem: 1471MB
+Epoch  56/100 | Train Loss: 1.2336 | Val Loss: 1.5094 | LR: 1.24e-04 | Time: 34.4s | Mem: 1471MB
+Epoch  57/100 | Train Loss: 1.2323 | Val Loss: 1.5026 | LR: 1.19e-04 | Time: 36.0s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5026)
+Epoch  58/100 | Train Loss: 1.2307 | Val Loss: 1.5004 | LR: 1.14e-04 | Time: 39.2s | Mem: 1471MB
+  -> Saved best model (val_loss=1.5004)
+Epoch  59/100 | Train Loss: 1.2289 | Val Loss: 1.5017 | LR: 1.10e-04 | Time: 40.1s | Mem: 1471MB
+Epoch  60/100 | Train Loss: 1.2281 | Val Loss: 1.4950 | LR: 1.05e-04 | Time: 38.2s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4950)
+Epoch  61/100 | Train Loss: 1.2266 | Val Loss: 1.4975 | LR: 1.01e-04 | Time: 29.0s | Mem: 1471MB
+Epoch  62/100 | Train Loss: 1.2259 | Val Loss: 1.4944 | LR: 9.61e-05 | Time: 35.6s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4944)
+Epoch  63/100 | Train Loss: 1.2248 | Val Loss: 1.4907 | LR: 9.17e-05 | Time: 40.5s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4907)
+Epoch  64/100 | Train Loss: 1.2233 | Val Loss: 1.4918 | LR: 8.74e-05 | Time: 38.2s | Mem: 1471MB
+Epoch  65/100 | Train Loss: 1.2227 | Val Loss: 1.4895 | LR: 8.31e-05 | Time: 37.3s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4895)
+Epoch  66/100 | Train Loss: 1.2218 | Val Loss: 1.4853 | LR: 7.89e-05 | Time: 33.5s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4853)
+Epoch  67/100 | Train Loss: 1.2203 | Val Loss: 1.4841 | LR: 7.47e-05 | Time: 40.4s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4841)
+Epoch  68/100 | Train Loss: 1.2195 | Val Loss: 1.4805 | LR: 7.07e-05 | Time: 38.2s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4805)
+Epoch  69/100 | Train Loss: 1.2189 | Val Loss: 1.4781 | LR: 6.67e-05 | Time: 40.3s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4781)
+Epoch  70/100 | Train Loss: 1.2181 | Val Loss: 1.4797 | LR: 6.28e-05 | Time: 40.2s | Mem: 1471MB
+Epoch  71/100 | Train Loss: 1.2172 | Val Loss: 1.4802 | LR: 5.89e-05 | Time: 39.7s | Mem: 1471MB
+Epoch  72/100 | Train Loss: 1.2166 | Val Loss: 1.4770 | LR: 5.52e-05 | Time: 40.4s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4770)
+Epoch  73/100 | Train Loss: 1.2159 | Val Loss: 1.4751 | LR: 5.16e-05 | Time: 40.2s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4751)
+Epoch  74/100 | Train Loss: 1.2151 | Val Loss: 1.4740 | LR: 4.80e-05 | Time: 40.7s | Mem: 1472MB
+  -> Saved best model (val_loss=1.4740)
+Epoch  75/100 | Train Loss: 1.2145 | Val Loss: 1.4725 | LR: 4.46e-05 | Time: 39.0s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4725)
+Epoch  76/100 | Train Loss: 1.2140 | Val Loss: 1.4742 | LR: 4.13e-05 | Time: 40.1s | Mem: 1471MB
+Epoch  77/100 | Train Loss: 1.2132 | Val Loss: 1.4688 | LR: 3.81e-05 | Time: 40.2s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4688)
+Epoch  78/100 | Train Loss: 1.2129 | Val Loss: 1.4684 | LR: 3.50e-05 | Time: 39.0s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4684)
+Epoch  79/100 | Train Loss: 1.2124 | Val Loss: 1.4689 | LR: 3.20e-05 | Time: 40.1s | Mem: 1471MB
+Epoch  80/100 | Train Loss: 1.2119 | Val Loss: 1.4660 | LR: 2.91e-05 | Time: 40.3s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4660)
+Epoch  81/100 | Train Loss: 1.2116 | Val Loss: 1.4656 | LR: 2.63e-05 | Time: 40.3s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4656)
+Epoch  82/100 | Train Loss: 1.2111 | Val Loss: 1.4649 | LR: 2.37e-05 | Time: 40.1s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4649)
+Epoch  83/100 | Train Loss: 1.2108 | Val Loss: 1.4645 | LR: 2.12e-05 | Time: 39.9s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4645)
+Epoch  84/100 | Train Loss: 1.2104 | Val Loss: 1.4643 | LR: 1.88e-05 | Time: 40.2s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4643)
+Epoch  85/100 | Train Loss: 1.2103 | Val Loss: 1.4624 | LR: 1.66e-05 | Time: 39.7s | Mem: 1471MB
+  -> Saved best model (val_loss=1.4624)
+Epoch  86/100 | Train Loss: 1.2100 | Val Loss: 1.4630 | LR: 1.45e-05 | Time: 39.0s | Mem: 1471MB
+Epoch  87/100 | Train Loss: 1.2097 | Val Loss: 1.4634 | LR: 1.25e-05 | Time: 40.3s | Mem: 1471MB
+Epoch  88/100 | Train Loss: 1.2094 | Val Loss: 1.4637 | LR: 1.07e-05 | Time: 40.4s | Mem: 1471MB
+Epoch  89/100 | Train Loss: 1.2093 | Val Loss: 1.4638 | LR: 9.01e-06 | Time: 39.5s | Mem: 1471MB
+Epoch  90/100 | Train Loss: 1.2091 | Val Loss: 1.4637 | LR: 7.46e-06 | Time: 34.4s | Mem: 1471MB
+Epoch  91/100 | Train Loss: 1.2089 | Val Loss: 1.4629 | LR: 6.05e-06 | Time: 37.2s | Mem: 1471MB
+Epoch  92/100 | Train Loss: 1.2089 | Val Loss: 1.4644 | LR: 4.79e-06 | Time: 39.9s | Mem: 1471MB
+Epoch  93/100 | Train Loss: 1.2087 | Val Loss: 1.4632 | LR: 3.67e-06 | Time: 38.7s | Mem: 1471MB
+Epoch  94/100 | Train Loss: 1.2088 | Val Loss: 1.4632 | LR: 2.70e-06 | Time: 36.4s | Mem: 1471MB
+Epoch  95/100 | Train Loss: 1.2086 | Val Loss: 1.4630 | LR: 1.88e-06 | Time: 40.4s | Mem: 1471MB
+Epoch  96/100 | Train Loss: 1.2086 | Val Loss: 1.4626 | LR: 1.20e-06 | Time: 37.5s | Mem: 1471MB
+Epoch  97/100 | Train Loss: 1.2086 | Val Loss: 1.4628 | LR: 6.76e-07 | Time: 34.6s | Mem: 1471MB
+Epoch  98/100 | Train Loss: 1.2087 | Val Loss: 1.4628 | LR: 3.01e-07 | Time: 39.6s | Mem: 1471MB
+Epoch  99/100 | Train Loss: 1.2085 | Val Loss: 1.4628 | LR: 7.52e-08 | Time: 40.4s | Mem: 1471MB
+Epoch 100/100 | Train Loss: 1.2084 | Val Loss: 1.4628 | LR: 0.00e+00 | Time: 36.1s | Mem: 1471MB
+  Early stopping at epoch 100
+
+=== Test Set Evaluation ===
+  bit_level_accuracy: 0.9404
+  char_level_accuracy: 0.8351
+  sequence_accuracy: 0.4585
+  avg_levenshtein: 1.7734
+  bleu: 0.8839
+  rouge_l_f1: 0.9553
+  rouge_l_precision: 0.9557
+  rouge_l_recall: 0.9550
+wandb: updating run metadata
+wandb: uploading output.log; uploading wandb-summary.json; uploading config.yaml
+wandb: uploading history steps 101-101, summary, console lines 257-264
+wandb: 
+wandb: Run history:
+wandb:                    epoch ▁▁▁▂▂▂▂▂▂▃▃▃▃▃▃▄▄▄▄▄▅▅▅▅▅▅▆▆▆▆▇▇▇▇▇▇▇▇██
+wandb:             epoch_time_s █▇███▆▇▃█▇█▇█▇█▇█▇█▇▆▆▇▇▆▁▅█▄▇█▇█▇▇▇█▇▆▅
+wandb:            learning_rate ██████████▇▇▇▆▆▆▆▆▅▅▅▅▄▄▄▃▃▃▃▃▂▂▂▂▂▁▁▁▁▁
+wandb:           num_parameters ▁
+wandb:       peak_gpu_memory_mb ▁▁▂▃▁▃▂▃▂▁▂▂▃▂▃▁▃▃▃▁▂█▂▁▂▃▁▂▂▂▂▂▃▄▁▃▂▁▁▃
+wandb:     test/avg_levenshtein ▁
+wandb:  test/bit_level_accuracy ▁
+wandb:                test/bleu ▁
+wandb: test/char_level_accuracy ▁
+wandb:          test/rouge_l_f1 ▁
+wandb:                       +5 ...
+wandb: 
+wandb: Run summary:
+wandb:                    epoch 100
+wandb:             epoch_time_s 36.14665
+wandb:            learning_rate 0
+wandb:           num_parameters 10449824
+wandb:       peak_gpu_memory_mb 1471.2085
+wandb:     test/avg_levenshtein 1.7734
+wandb:  test/bit_level_accuracy 0.94039
+wandb:                test/bleu 0.88386
+wandb: test/char_level_accuracy 0.83506
+wandb:          test/rouge_l_f1 0.95527
+wandb:                       +5 ...
+wandb: 
+wandb: 🚀 View run C1_base at: https://wandb.ai/dnebhrajani-v/anlp-transformer-from-scratch/runs/jz4j1cni
+wandb: ⭐️ View project at: https://wandb.ai/dnebhrajani-v/anlp-transformer-from-scratch
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20260902_024952-jz4j1cni/logs

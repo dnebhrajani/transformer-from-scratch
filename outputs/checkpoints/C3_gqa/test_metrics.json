@@ -1,9 +1,10 @@
 {
-  "bit_level_accuracy": 0.6405483697915602,
-  "sequence_accuracy": 0.0,
-  "avg_levenshtein": 648.454,
-  "bleu": 0.00019761240932331095,
-  "rouge_l_f1": 0.11543522556941305,
-  "rouge_l_precision": 0.11094866039010491,
-  "rouge_l_recall": 0.13221374766422034
+  "bit_level_accuracy": 0.9309320496026148,
+  "char_level_accuracy": 0.8080599462229572,
+  "sequence_accuracy": 0.36840253342716395,
+  "avg_levenshtein": 2.338494018296974,
+  "bleu": 0.8558271439650299,
+  "rouge_l_f1": 0.9419362589966473,
+  "rouge_l_precision": 0.9421529737306668,
+  "rouge_l_recall": 0.9418142769385387
 }

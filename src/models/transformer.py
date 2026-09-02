@@ -437,13 +437,24 @@ class BLTTransformerSeq2Seq(nn.Module):
         self._init_weights(num_layers)
 
     def _init_weights(self, num_layers: int):
-        scale = 1.0 / math.sqrt(2.0 * num_layers)
+        local_layers = self.config.get("local_layers", 1)
+        global_scale = 1.0 / math.sqrt(2.0 * num_layers)
+        local_scale = 1.0 / math.sqrt(2.0 * max(local_layers, 1))
+
         for name, p in self.named_parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
             if "W_o" in name or "net.2" in name:
+                is_local = "local_encoder" in name or "local_decoder" in name
+                s = local_scale if is_local else global_scale
                 with torch.no_grad():
-                    p.mul_(scale)
+                    p.mul_(s)
+
+        # Re-zero padding embeddings that Xavier overwrote
+        with torch.no_grad():
+            self.src_local_encoder.byte_embedding.weight[0].zero_()
+            self.tgt_local_encoder.byte_embedding.weight[0].zero_()
+            self.local_decoder.byte_embedding.weight[0].zero_()
 
     def forward(
         self,
@@ -507,48 +518,84 @@ class BLTTransformerSeq2Seq(nn.Module):
         self,
         src_bytes: torch.Tensor,
         src_padding_mask: torch.Tensor | None = None,
-        max_patches: int = 256,
+        max_tgt_patches: int | None = None,
     ) -> torch.Tensor:
         """
-        Non-autoregressive generation for inference (greedy).
+        Autoregressive patch-level decoding for BLT inference.
 
-        Since source and target have equal byte counts in this task, we use
-        the encoder output as decoder queries (non-autoregressive at patch level),
-        then autoregressively decode bytes within each patch via the local decoder.
+        Generates one patch at a time: for each new patch position, runs the
+        global decoder over all previously-generated patches (with causal mask,
+        matching training), then uses the local decoder to produce `patch_size`
+        bytes autoregressively.  The predicted bytes are encoded through
+        `tgt_local_encoder` and appended for the next step.
         """
         batch_size = src_bytes.size(0)
         device = src_bytes.device
 
-        # Encode source -> source patches
-        src_patches, src_patch_mask = self.src_local_encoder(src_bytes, src_padding_mask)
-        src_patches = self.src_pos_enc(src_patches)
-        num_patches = src_patches.size(1)
+        # --- Source encoding -------------------------------------------------
+        src_patches, src_patch_mask = self.src_local_encoder(
+            src_bytes, src_padding_mask
+        )
+        src_patches_pe = self.src_pos_enc(src_patches)
 
         src_attn_mask = None
         if src_patch_mask is not None:
             src_attn_mask = src_patch_mask.unsqueeze(1).unsqueeze(2)
 
-        # Global encoder
-        enc_out = src_patches
+        enc_out = src_patches_pe
         for layer in self.encoder_layers:
             enc_out = layer(enc_out, src_attn_mask)
         enc_out = self.encoder_norm(enc_out)
 
-        # Global decoder: use learned positional queries as decoder input
-        # (non-autoregressive — no causal mask, since we decode all patches at once)
-        dec_queries = self.tgt_pos_enc(
-            torch.zeros(batch_size, num_patches, self.config["d_model"], device=device)
-        )
+        # --- Determine target patch count ------------------------------------
+        if max_tgt_patches is None:
+            max_tgt_len = self.config.get("max_tgt_len", 512)
+            max_tgt_patches = int(math.ceil(max_tgt_len / self.patch_size))
 
-        # No causal mask for non-autoregressive decoding at patch level
-        for layer in self.decoder_layers:
-            dec_queries = layer(dec_queries, enc_out, tgt_mask=None, memory_mask=src_attn_mask)
-        dec_out = self.decoder_norm(dec_queries)
+        d_model = self.config["d_model"]
 
-        # Local decoder: expand patches to bytes autoregressively
-        logits = self.local_decoder(dec_out, target_bytes=None)
+        # --- Autoregressive patch-level generation ---------------------------
+        all_patch_reps: list[torch.Tensor] = []   # each (batch, 1, d_model)
+        all_logits: list[torch.Tensor] = []        # each (batch, patch_size, 256)
 
-        return logits
+        for p in range(max_tgt_patches):
+            # Build decoder input: previous patch representations + zero for
+            # the new position (content is unknown, PE provides signal).
+            new_slot = torch.zeros(batch_size, 1, d_model, device=device)
+            if all_patch_reps:
+                dec_input = torch.cat(all_patch_reps + [new_slot], dim=1)
+            else:
+                dec_input = new_slot  # (batch, 1, d_model)
+
+            dec_input_pe = self.tgt_pos_enc(dec_input)
+
+            cur_len = dec_input.size(1)
+            causal_mask = torch.triu(
+                torch.ones(cur_len, cur_len, device=device, dtype=torch.bool),
+                diagonal=1,
+            ).unsqueeze(0).unsqueeze(0)
+
+            x = dec_input_pe
+            for layer in self.decoder_layers:
+                x = layer(x, enc_out, causal_mask, src_attn_mask)
+            dec_out = self.decoder_norm(x)
+
+            # Take the last position (the new patch)
+            patch_out = dec_out[:, -1:, :]  # (batch, 1, d_model)
+
+            # Local decoder: generate patch_size bytes autoregressively
+            patch_logits = self.local_decoder(
+                patch_out, target_bytes=None
+            )  # (batch, patch_size, 256)
+            all_logits.append(patch_logits)
+
+            # Encode predicted bytes for the next step's context
+            pred_bytes = patch_logits.argmax(dim=-1) + 1  # (batch, patch_size)
+            pred_pad = torch.zeros_like(pred_bytes, dtype=torch.bool)
+            patch_rep, _ = self.tgt_local_encoder(pred_bytes, pred_pad)
+            all_patch_reps.append(patch_rep)  # (batch, 1, d_model)
+
+        return torch.cat(all_logits, dim=1)  # (batch, tgt_bytes, 256)
 
 
 def _make_norm(norm_type: str, d_model: int) -> nn.Module:

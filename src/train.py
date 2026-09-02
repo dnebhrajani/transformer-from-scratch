@@ -29,18 +29,21 @@ BASE_CONFIG = {
     "num_layers": 4,
     "d_ff": 1024,
     "dropout": 0.1,
-    "max_len": 1024,
-    "batch_size": 16,
-    "max_src_len": 512,
-    "max_tgt_len": 512,
-    "learning_rate": 1e-4,
+    "max_len": 2048,
+    "batch_size": 32,
+    "max_src_len": 1024,
+    "max_tgt_len": 128,
+    "learning_rate": 3e-4,
     "weight_decay": 1e-4,
     "warmup_steps": 500,
-    "max_epochs": 50,
-    "patience": 7,
-    "src_bpe_vocab_size": 400,
-    "tgt_bpe_vocab_size": 400,
+    "max_epochs": 100,
+    "patience": 15,
+    "label_smoothing": 0.1,
+    "src_bpe_vocab_size": 4000,
+    "tgt_bpe_vocab_size": 4000,
+    "segment_bytes": 128,
 }
+
 
 CONFIGS = {
     "C1": {
@@ -86,8 +89,10 @@ CONFIGS = {
         "patch_size": 4,
         "local_layers": 1,
         "local_heads": 4,
+        "max_src_len": 1024,
     },
 }
+
 
 
 # ---------- Learning Rate Scheduler (Warmup + Cosine Decay) ----------
@@ -243,7 +248,7 @@ def run_evaluation(model, dataloader, tgt_tokenizer, device, config) -> dict:
             pred_bytes = logits.argmax(dim=-1)  # (batch, pred_len)
             for i in range(pred_bytes.size(0)):
                 byte_list = pred_bytes[i].cpu().tolist()
-                text = bytes([b for b in byte_list if 0 <= b < 256]).decode(
+                text = bytes([b for b in byte_list if 0 < b < 256]).decode(
                     "utf-8", errors="replace"
                 )
                 all_predictions.append(text)
@@ -264,6 +269,17 @@ def run_evaluation(model, dataloader, tgt_tokenizer, device, config) -> dict:
                 all_predictions.append(text)
 
         all_targets.extend(batch["plain_texts"])
+
+    # For BLT (C5), truncate targets to max_tgt_len bytes since training
+    # data was byte-truncated.  For subword configs the BPE encoding
+    # already covers the full plaintext, so no target truncation needed.
+    if config["tokenization"] == "blt":
+        max_tgt_len = config.get("max_tgt_len", 512)
+        truncated = []
+        for t in all_targets:
+            encoded = t.encode("utf-8")[:max_tgt_len]
+            truncated.append(encoded.decode("utf-8", errors="ignore"))
+        all_targets = truncated
 
     include_bleu_rouge = config["tokenization"] != "blt"
     return evaluate_all(all_predictions, all_targets, include_bleu_rouge)
@@ -328,11 +344,12 @@ def main():
         wandb.log({"num_parameters": num_params})
 
     # Loss & optimizer
+    ls = config.get("label_smoothing", 0.0)
     if config["tokenization"] == "blt":
-        criterion = nn.CrossEntropyLoss(ignore_index=-100)
+        criterion = nn.CrossEntropyLoss(ignore_index=-100, label_smoothing=ls)
     else:
         pad_id = tgt_tokenizer.pad_id
-        criterion = nn.CrossEntropyLoss(ignore_index=pad_id)
+        criterion = nn.CrossEntropyLoss(ignore_index=pad_id, label_smoothing=ls)
 
     optimizer = optim.AdamW(
         model.parameters(),
@@ -346,6 +363,16 @@ def main():
     # Overfit test mode
     if args.overfit_test:
         print("\n=== OVERFIT TEST: training on single batch for 500 steps ===")
+        print("Using label_smoothing=0 for overfit diagnostic")
+
+        # Label smoothing must be disabled for a true memorization test.
+        if config["tokenization"] == "blt":
+            overfit_criterion = nn.CrossEntropyLoss(ignore_index=-100)
+        else:
+            overfit_criterion = nn.CrossEntropyLoss(
+                ignore_index=tgt_tokenizer.pad_id
+            )
+
         model.train()
         batch = next(iter(train_loader))
 
@@ -364,7 +391,7 @@ def main():
                 #     logits[:, :min_len].reshape(-1, 256),
                 #     tgt_labels[:, :min_len].reshape(-1),
                 # )
-                loss = criterion(
+                loss = overfit_criterion(
                     logits[:, :min_len].reshape(-1, logits.size(-1)),
                     tgt_labels[:, :min_len].reshape(-1),
                 )
@@ -376,7 +403,7 @@ def main():
                 src_mask, tgt_mask, memory_mask = create_masks(src, tgt_input)
                 logits = model(src, tgt_input, src_mask, tgt_mask, memory_mask)
                 vocab_size = logits.size(-1)
-                loss = criterion(logits.reshape(-1, vocab_size), tgt_labels.reshape(-1))
+                loss = overfit_criterion(logits.reshape(-1, vocab_size), tgt_labels.reshape(-1))
 
             optimizer.zero_grad()
             loss.backward()
@@ -386,10 +413,45 @@ def main():
                 print(f"  Step {step:4d} | Loss: {loss.item():.4f}")
 
         print(f"  Final loss: {loss.item():.6f}")
+        # Greedy-decode the same batch to verify autoregressive inference.
+        model.eval()
+        src = batch["src"].to(device)
+        tgt = batch["tgt"].to(device)
+
+        src_mask = (src == tgt_tokenizer.pad_id).unsqueeze(1).unsqueeze(2)
+
+        decoded = greedy_decode_batch(
+            model,
+            src,
+            src_mask,
+            config["max_tgt_len"],
+            tgt_tokenizer.bos_id,
+            tgt_tokenizer.eos_id,
+            device,
+        )
+
+        print("\n=== GREEDY DECODE MEMORIZATION TEST ===")
+        for i in range(min(3, src.size(0))):
+            target_text = tgt_tokenizer.decode(
+                tgt[i].cpu().tolist(),
+                skip_special_tokens=True,
+            )
+            pred_text = tgt_tokenizer.decode(
+                decoded[i].cpu().tolist(),
+                skip_special_tokens=True,
+            )
+
+            print(f"\nExample {i}:")
+            print(f"  Target:    {target_text[:100]!r}")
+            print(f"  Prediction: {pred_text[:100]!r}")
+            print(f"  Exact: {pred_text == target_text}")
+
+        print("\nIf predictions closely match targets, autoregressive decoding is working.")
+
         if loss.item() > 0.1:
-            print("  WARNING: Loss did not converge — likely a bug in masking or model!")
+            print("  WARNING: Training loss did not converge.")
         else:
-            print("  OK: Loss converged — model can memorize a batch.")
+            print("  OK: Training loss converged.")
         return
 
     # Training loop
