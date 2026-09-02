@@ -257,8 +257,10 @@ class CipherToTextDataset(Dataset):
 class CipherToTextBLTDataset(Dataset):
     """
     Dataset for configuration C5 (BLT / token-free).
-    Source: cipher binary -> raw byte IDs (each bit as a byte: '0'->1, '1'->2, 0=PAD)
-    Target: plaintext -> raw UTF-8 byte IDs (byte_value + 1, 0=PAD)
+
+    Source: groups of 8 cipher bits -> actual byte value -> embedding ID (byte+1).
+    Target: plaintext UTF-8 bytes -> embedding ID (byte+1).
+    Embedding ID 0 is reserved for PAD.
     """
 
     def __init__(
@@ -282,18 +284,23 @@ class CipherToTextBLTDataset(Dataset):
         cipher = self.ciphers[idx]
         plain = self.plains[idx]
 
-        # Source: each bit character '0' or '1' mapped to byte ID
-        # '0' -> 1, '1' -> 2  (0 reserved for PAD)
-        src_bytes = [int(b) + 1 for b in cipher]
-        src_bytes = src_bytes[: self.max_src_len]
+        # Source: group every 8 cipher bits into one byte, drop incomplete tail
+        # byte value v in [0,255] -> embedding ID v+1;  PAD = 0
+        src_ids: list[int] = []
+        for i in range(0, len(cipher) - 7, 8):
+            byte_val = int(cipher[i : i + 8], 2)
+            src_ids.append(byte_val + 1)
+        src_ids = src_ids[: self.max_src_len]
 
-        # Target: plaintext -> UTF-8 bytes, shifted +1 so 0=PAD
-        tgt_bytes = [b + 1 for b in plain.encode("utf-8")]
-        tgt_bytes = tgt_bytes[: self.max_tgt_len]
+        # Target: plaintext -> UTF-8 bytes -> embedding ID (byte+1)
+        tgt_ids = [b + 1 for b in plain.encode("utf-8")]
+        tgt_ids = tgt_ids[: self.max_tgt_len]
 
         return {
-            "src_bytes": torch.tensor(src_bytes, dtype=torch.long),
-            "tgt_bytes": torch.tensor(tgt_bytes, dtype=torch.long),
+            "src_ids": torch.tensor(src_ids, dtype=torch.long),
+            "tgt_ids": torch.tensor(tgt_ids, dtype=torch.long),
+            "src_len": len(src_ids),
+            "tgt_len": len(tgt_ids),
             "plain_text": plain,
             "line_idx": self.line_indices[idx],
         }
@@ -328,22 +335,21 @@ class TokenizedCollator:
 
 
 def collate_blt(batch: list[dict]) -> dict:
-    """Collate function for BLT dataset — pads bytes to max length in batch."""
-    src_bytes = [item["src_bytes"] for item in batch]
-    tgt_bytes = [item["tgt_bytes"] for item in batch]
+    """Collate function for BLT dataset — pads byte IDs and returns explicit lengths."""
+    src_ids = [item["src_ids"] for item in batch]
+    tgt_ids = [item["tgt_ids"] for item in batch]
 
-    src_padded = torch.nn.utils.rnn.pad_sequence(src_bytes, batch_first=True, padding_value=0)
-    tgt_padded = torch.nn.utils.rnn.pad_sequence(tgt_bytes, batch_first=True, padding_value=0)
+    src_padded = torch.nn.utils.rnn.pad_sequence(src_ids, batch_first=True, padding_value=0)
+    tgt_padded = torch.nn.utils.rnn.pad_sequence(tgt_ids, batch_first=True, padding_value=0)
 
-    # Padding masks (True = padded position)
-    src_padding_mask = src_padded == 0
-    tgt_padding_mask = tgt_padded == 0
+    src_lens = torch.tensor([item["src_len"] for item in batch], dtype=torch.long)
+    tgt_lens = torch.tensor([item["tgt_len"] for item in batch], dtype=torch.long)
 
     return {
-        "src_bytes": src_padded,
-        "tgt_bytes": tgt_padded,
-        "src_padding_mask": src_padding_mask,
-        "tgt_padding_mask": tgt_padding_mask,
+        "src_ids": src_padded,
+        "tgt_ids": tgt_padded,
+        "src_lens": src_lens,
+        "tgt_lens": tgt_lens,
         "plain_texts": [item["plain_text"] for item in batch],
         "line_indices": [item["line_idx"] for item in batch],
     }

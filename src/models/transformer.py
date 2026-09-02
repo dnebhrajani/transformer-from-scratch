@@ -5,7 +5,7 @@ import torch.nn as nn
 from .attention import MultiHeadAttention, GroupedQueryAttention, scaled_dot_product_attention
 from .positional import SinusoidalPositionalEncoding, RotaryPositionalEncoding, apply_rotary_pos_emb
 from .norm import LayerNorm, RMSNorm
-from .blt import LocalEncoder, LocalDecoder
+from .blt import LocalEncoder, LocalDecoder, EntropyPatcher, DynamicLocalEncoder, DynamicLocalDecoder
 
 
 class FeedForward(nn.Module):
@@ -382,8 +382,10 @@ class TransformerSeq2Seq(nn.Module):
 
 class BLTTransformerSeq2Seq(nn.Module):
     """
-    Configuration C5: Byte Latent Transformer.
-    No tokenizer — raw bytes processed through local encoder -> global transformer -> local decoder.
+    Configuration C5: Byte Latent Transformer with entropy-based dynamic patching.
+
+    Raw bytes -> entropy patcher -> local encoder -> global transformer -> local decoder -> bytes.
+    Patches have variable length in [min_patch_size, max_patch_size].
     """
 
     def __init__(self, config: dict):
@@ -394,44 +396,53 @@ class BLTTransformerSeq2Seq(nn.Module):
         num_layers = config["num_layers"]
         d_ff = config["d_ff"]
         dropout = config["dropout"]
-        patch_size = config.get("patch_size", 4)
-        local_layers = config.get("local_layers", 1)
-        local_heads = config.get("local_heads", 4)
         max_len = config.get("max_len", 1024)
         norm_type = config.get("norm_type", "layernorm")
+        local_layers = config.get("local_layers", 1)
+        local_heads = config.get("local_heads", 4)
+        max_patch_size = config.get("max_patch_size", 8)
+        min_patch_size = config.get("min_patch_size", 2)
+        entropy_threshold = config.get("entropy_threshold", 3.0)
+        entropy_window = config.get("entropy_window", 8)
 
-        self.patch_size = patch_size
-
-        # Local encoder: bytes -> patches (for source)
-        self.src_local_encoder = LocalEncoder(
-            d_model, local_heads, patch_size, local_layers, dropout
+        # Entropy-based patcher (no learnable parameters)
+        self.patcher = EntropyPatcher(
+            min_patch_size=min_patch_size,
+            max_patch_size=max_patch_size,
+            entropy_threshold=entropy_threshold,
+            entropy_window=entropy_window,
         )
-        # Local encoder for target (during training for teacher forcing context)
-        self.tgt_local_encoder = LocalEncoder(
-            d_model, local_heads, patch_size, local_layers, dropout
+
+        # Local encoder: variable-length patches -> patch representations
+        self.src_local_encoder = DynamicLocalEncoder(
+            d_model, local_heads, max_patch_size, local_layers, dropout
+        )
+        self.tgt_local_encoder = DynamicLocalEncoder(
+            d_model, local_heads, max_patch_size, local_layers, dropout
         )
 
         # Global positional encoding (on patches)
         self.src_pos_enc = SinusoidalPositionalEncoding(d_model, max_len, dropout)
         self.tgt_pos_enc = SinusoidalPositionalEncoding(d_model, max_len, dropout)
 
-        # Global encoder (processes source patches)
+        # Global encoder
         self.encoder_layers = nn.ModuleList([
             EncoderLayer(d_model, num_heads, d_ff, dropout, norm_type)
             for _ in range(num_layers)
         ])
         self.encoder_norm = _make_norm(norm_type, d_model)
 
-        # Global decoder (cross-attends target patches to source patches)
+        # Global decoder
         self.decoder_layers = nn.ModuleList([
             DecoderLayer(d_model, num_heads, d_ff, dropout, norm_type)
             for _ in range(num_layers)
         ])
         self.decoder_norm = _make_norm(norm_type, d_model)
 
-        # Local decoder: patches -> bytes (for target)
-        self.local_decoder = LocalDecoder(
-            d_model, local_heads, patch_size, local_layers, dropout
+        # Local decoder: patch representations -> variable-length byte sequences
+        self.local_decoder = DynamicLocalDecoder(
+            d_model, local_heads, max_patch_size, min_patch_size,
+            local_layers, dropout
         )
 
         self._init_weights(num_layers)
@@ -456,116 +467,124 @@ class BLTTransformerSeq2Seq(nn.Module):
             self.tgt_local_encoder.byte_embedding.weight[0].zero_()
             self.local_decoder.byte_embedding.weight[0].zero_()
 
-    def forward(
-        self,
-        src_bytes: torch.Tensor,
-        tgt_bytes: torch.Tensor,
-        src_padding_mask: torch.Tensor | None = None,
-        tgt_padding_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """
-        Args:
-            src_bytes: (batch, src_byte_len) — source byte IDs (1-256, 0=PAD)
-            tgt_bytes: (batch, tgt_byte_len) — target byte IDs for teacher forcing
-            src_padding_mask: (batch, src_byte_len) — True where padded
-            tgt_padding_mask: (batch, tgt_byte_len) — True where padded
-        Returns:
-            logits: (batch, tgt_byte_len, 256)
-        """
-        # Local encode source bytes into patches
-        src_patches, src_patch_mask = self.src_local_encoder(src_bytes, src_padding_mask)
+    def _encode_source(
+        self, src_ids: torch.Tensor, src_lens: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Entropy-patch, local-encode, and globally encode the source."""
+        src_patch_ids, src_patch_lengths, src_patch_mask = self.patcher.batch_patch(
+            src_ids, src_lens
+        )
+        src_reps, src_patch_mask = self.src_local_encoder(
+            src_patch_ids, src_patch_lengths, src_patch_mask
+        )
+        src_reps = self.src_pos_enc(src_reps)
 
-        # Local encode target bytes into patches (for global decoder input)
-        tgt_patches, tgt_patch_mask = self.tgt_local_encoder(tgt_bytes, tgt_padding_mask)
+        src_attn_mask = src_patch_mask.unsqueeze(1).unsqueeze(2)  # (B,1,1,P_src)
 
-        # Add positional encoding to patches
-        src_patches = self.src_pos_enc(src_patches)
-        tgt_patches = self.tgt_pos_enc(tgt_patches)
-
-        # Build masks for global attention
-        # src_patch_mask: (batch, num_src_patches) -> (batch, 1, 1, num_src_patches)
-        src_attn_mask = src_patch_mask.unsqueeze(1).unsqueeze(2) if src_patch_mask is not None else None
-
-        # Target causal + padding mask
-        num_tgt_patches = tgt_patches.size(1)
-        causal = torch.triu(
-            torch.ones(num_tgt_patches, num_tgt_patches, device=tgt_patches.device, dtype=torch.bool),
-            diagonal=1,
-        )  # (T, T)
-        tgt_attn_mask = causal.unsqueeze(0).unsqueeze(0)  # (1, 1, T, T)
-        if tgt_patch_mask is not None:
-            pad_mask = tgt_patch_mask.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, T)
-            tgt_attn_mask = tgt_attn_mask | pad_mask
-
-        # Global encoder
-        enc_out = src_patches
+        enc_out = src_reps
         for layer in self.encoder_layers:
             enc_out = layer(enc_out, src_attn_mask)
         enc_out = self.encoder_norm(enc_out)
 
+        return enc_out, src_attn_mask
+
+    def forward(
+        self,
+        src_ids: torch.Tensor,
+        tgt_ids: torch.Tensor,
+        src_lens: torch.Tensor,
+        tgt_lens: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Training forward pass.
+
+        Args:
+            src_ids:  (B, S_src) source byte embedding IDs (1-256, 0=PAD)
+            tgt_ids:  (B, S_tgt) target byte embedding IDs (1-256, 0=PAD)
+            src_lens: (B,) true source lengths
+            tgt_lens: (B,) true target lengths
+        Returns:
+            byte_logits:       (B, P_tgt, M, 256)
+            eop_logits:        (B, P_tgt, M)
+            tgt_patch_ids:     (B, P_tgt, M)
+            tgt_patch_lengths: (B, P_tgt)
+            tgt_patch_mask:    (B, P_tgt)
+        """
+        # Source encoding
+        enc_out, src_attn_mask = self._encode_source(src_ids, src_lens)
+
+        # Entropy-patch target
+        tgt_patch_ids, tgt_patch_lengths, tgt_patch_mask = self.patcher.batch_patch(
+            tgt_ids, tgt_lens
+        )
+
+        # Local-encode target patches
+        tgt_reps, tgt_patch_mask = self.tgt_local_encoder(
+            tgt_patch_ids, tgt_patch_lengths, tgt_patch_mask
+        )
+        tgt_reps = self.tgt_pos_enc(tgt_reps)
+
+        # Global decoder masks
+        P_tgt = tgt_reps.size(1)
+        causal = torch.triu(
+            torch.ones(P_tgt, P_tgt, device=tgt_reps.device, dtype=torch.bool),
+            diagonal=1,
+        ).unsqueeze(0).unsqueeze(0)
+        tgt_attn_mask = causal | tgt_patch_mask.unsqueeze(1).unsqueeze(2)
+
         # Global decoder
-        dec_out = tgt_patches
+        dec_out = tgt_reps
         for layer in self.decoder_layers:
             dec_out = layer(dec_out, enc_out, tgt_attn_mask, src_attn_mask)
         dec_out = self.decoder_norm(dec_out)
 
-        # Local decoder: expand patches back to byte logits
-        logits = self.local_decoder(dec_out, tgt_bytes)
+        # Local decoder
+        byte_logits, eop_logits = self.local_decoder(
+            dec_out, tgt_patch_ids, tgt_patch_lengths
+        )
 
-        return logits
+        return byte_logits, eop_logits, tgt_patch_ids, tgt_patch_lengths, tgt_patch_mask
 
     def generate(
         self,
-        src_bytes: torch.Tensor,
-        src_padding_mask: torch.Tensor | None = None,
-        max_tgt_patches: int | None = None,
-    ) -> torch.Tensor:
+        src_ids: torch.Tensor,
+        src_lens: torch.Tensor,
+        max_tgt_len: int | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Autoregressive patch-by-patch generation.
+
+        Each generated patch can have a different length in
+        [min_patch_size, max_patch_size], determined by the EOP head.
+
+        Returns:
+            result:         (B, T_max) predicted byte embedding IDs (1-256)
+            result_lengths: (B,)       actual generated byte counts
         """
-        Autoregressive patch-level decoding for BLT inference.
+        B = src_ids.size(0)
+        device = src_ids.device
+        M = self.patcher.max_patch_size
 
-        Generates one patch at a time: for each new patch position, runs the
-        global decoder over all previously-generated patches (with causal mask,
-        matching training), then uses the local decoder to produce `patch_size`
-        bytes autoregressively.  The predicted bytes are encoded through
-        `tgt_local_encoder` and appended for the next step.
-        """
-        batch_size = src_bytes.size(0)
-        device = src_bytes.device
+        if max_tgt_len is None:
+            max_tgt_len = self.config.get("max_tgt_len", 128)
 
-        # --- Source encoding -------------------------------------------------
-        src_patches, src_patch_mask = self.src_local_encoder(
-            src_bytes, src_padding_mask
-        )
-        src_patches_pe = self.src_pos_enc(src_patches)
-
-        src_attn_mask = None
-        if src_patch_mask is not None:
-            src_attn_mask = src_patch_mask.unsqueeze(1).unsqueeze(2)
-
-        enc_out = src_patches_pe
-        for layer in self.encoder_layers:
-            enc_out = layer(enc_out, src_attn_mask)
-        enc_out = self.encoder_norm(enc_out)
-
-        # --- Determine target patch count ------------------------------------
-        if max_tgt_patches is None:
-            max_tgt_len = self.config.get("max_tgt_len", 512)
-            max_tgt_patches = int(math.ceil(max_tgt_len / self.patch_size))
+        # Source encoding
+        enc_out, src_attn_mask = self._encode_source(src_ids, src_lens)
 
         d_model = self.config["d_model"]
+        all_patch_reps: list[torch.Tensor] = []
+        all_gen_ids: list[torch.Tensor] = []
+        all_gen_lens: list[torch.Tensor] = []
+        total_bytes = torch.zeros(B, dtype=torch.long, device=device)
 
-        # --- Autoregressive patch-level generation ---------------------------
-        all_patch_reps: list[torch.Tensor] = []   # each (batch, 1, d_model)
-        all_logits: list[torch.Tensor] = []        # each (batch, patch_size, 256)
+        for _ in range(max_tgt_len):  # upper bound on patches
+            if (total_bytes >= max_tgt_len).all():
+                break
 
-        for p in range(max_tgt_patches):
-            # Build decoder input: previous patch representations + zero for
-            # the new position (content is unknown, PE provides signal).
-            new_slot = torch.zeros(batch_size, 1, d_model, device=device)
+            # Build global decoder input from previous patch reps + new zero slot
+            new_slot = torch.zeros(B, 1, d_model, device=device)
             if all_patch_reps:
                 dec_input = torch.cat(all_patch_reps + [new_slot], dim=1)
             else:
-                dec_input = new_slot  # (batch, 1, d_model)
+                dec_input = new_slot
 
             dec_input_pe = self.tgt_pos_enc(dec_input)
 
@@ -580,22 +599,52 @@ class BLTTransformerSeq2Seq(nn.Module):
                 x = layer(x, enc_out, causal_mask, src_attn_mask)
             dec_out = self.decoder_norm(x)
 
-            # Take the last position (the new patch)
-            patch_out = dec_out[:, -1:, :]  # (batch, 1, d_model)
+            # Take the last position (the new patch slot)
+            patch_out = dec_out[:, -1:, :]  # (B, 1, D)
 
-            # Local decoder: generate patch_size bytes autoregressively
-            patch_logits = self.local_decoder(
-                patch_out, target_bytes=None
-            )  # (batch, patch_size, 256)
-            all_logits.append(patch_logits)
+            # Generate variable-length patch via local decoder
+            gen_ids, gen_lens = self.local_decoder.generate_patch(patch_out)
+            all_gen_ids.append(gen_ids)
+            all_gen_lens.append(gen_lens)
+            total_bytes = total_bytes + gen_lens
 
-            # Encode predicted bytes for the next step's context
-            pred_bytes = patch_logits.argmax(dim=-1) + 1  # (batch, patch_size)
-            pred_pad = torch.zeros_like(pred_bytes, dtype=torch.bool)
-            patch_rep, _ = self.tgt_local_encoder(pred_bytes, pred_pad)
-            all_patch_reps.append(patch_rep)  # (batch, 1, d_model)
+            # Local-encode generated bytes as context for the next patch
+            gen_len = gen_ids.size(1)
+            packed = torch.zeros(B, 1, M, dtype=torch.long, device=device)
+            copy_len = min(gen_len, M)
+            packed[:, 0, :copy_len] = gen_ids[:, :copy_len]
+            packed_lengths = gen_lens.clamp(max=M).unsqueeze(1)  # (B, 1)
+            packed_mask = torch.zeros(B, 1, dtype=torch.bool, device=device)
 
-        return torch.cat(all_logits, dim=1)  # (batch, tgt_bytes, 256)
+            patch_rep, _ = self.tgt_local_encoder(packed, packed_lengths, packed_mask)
+            all_patch_reps.append(patch_rep)  # (B, 1, D)
+
+        # Concatenate all generated bytes
+        if not all_gen_ids:
+            return (
+                torch.zeros(B, 1, dtype=torch.long, device=device),
+                torch.zeros(B, dtype=torch.long, device=device),
+            )
+
+        max_total = min(int(total_bytes.max().item()), max_tgt_len)
+        max_total = max(max_total, 1)
+        result = torch.zeros(B, max_total, dtype=torch.long, device=device)
+        result_lengths = torch.zeros(B, dtype=torch.long, device=device)
+
+        for b in range(B):
+            offset = 0
+            for p_idx in range(len(all_gen_ids)):
+                L = int(all_gen_lens[p_idx][b].item())
+                remaining = min(L, max_tgt_len - offset)
+                if remaining <= 0:
+                    break
+                gen = all_gen_ids[p_idx]
+                copy_len = min(remaining, gen.size(1))
+                result[b, offset : offset + copy_len] = gen[b, :copy_len]
+                offset += copy_len
+            result_lengths[b] = offset
+
+        return result, result_lengths
 
 
 def _make_norm(norm_type: str, d_model: int) -> nn.Module:

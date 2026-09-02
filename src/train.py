@@ -6,6 +6,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import wandb
 
@@ -86,10 +87,16 @@ CONFIGS = {
         "attn_type": "mha",
         "norm_type": "layernorm",
         "tokenization": "blt",
-        "patch_size": 4,
+        "min_patch_size": 2,
+        "max_patch_size": 8,
+        "entropy_threshold": 3.0,
+        "entropy_window": 8,
         "local_layers": 1,
         "local_heads": 4,
-        "max_src_len": 1024,
+        "eop_loss_weight": 1.0,
+        "segment_bytes": 0,  # C5 skips segmentation — full sequences
+        "max_src_len": 2670,
+        "max_tgt_len": 2670,
     },
 }
 
@@ -134,27 +141,41 @@ def train_one_epoch(model, dataloader, optimizer, scheduler, criterion, device, 
 
     for batch in dataloader:
         if config["tokenization"] == "blt":
-            src = batch["src_bytes"].to(device)
-            tgt = batch["tgt_bytes"].to(device)
-            src_pad_mask = batch["src_padding_mask"].to(device)
-            tgt_pad_mask = batch["tgt_padding_mask"].to(device)
+            src = batch["src_ids"].to(device)
+            tgt = batch["tgt_ids"].to(device)
+            src_lens = batch["src_lens"].to(device)
+            tgt_lens = batch["tgt_lens"].to(device)
 
-            # For BLT: target input is tgt, target labels are tgt itself (shifted inside model)
-            logits = model(src, tgt, src_pad_mask, tgt_pad_mask)
+            byte_logits, eop_logits, tgt_patch_ids, tgt_patch_lengths, tgt_patch_mask = (
+                model(src, tgt, src_lens, tgt_lens)
+            )
 
-            # Loss: compare logits against target bytes
-            # logits: (batch, tgt_len, 256), target: byte values - 1 (0-indexed for classes)
-            tgt_labels = tgt.clone()
-            tgt_labels[tgt_labels > 0] -= 1  # shift back to 0-255 for loss
-            tgt_labels[tgt == 0] = -100  # ignore padding
+            B, P, M, _ = byte_logits.shape
 
-            # Truncate if logits shorter than target (due to patch alignment)
-            min_len = min(logits.size(1), tgt_labels.size(1))
-            logits = logits[:, :min_len, :]
-            tgt_labels = tgt_labels[:, :min_len]
+            # Real-position mask: within-patch non-padding AND existing patch
+            pos_idx = torch.arange(M, device=device).view(1, 1, M)
+            real_mask = (pos_idx < tgt_patch_lengths.unsqueeze(-1)) & ~tgt_patch_mask.unsqueeze(-1)
 
-            #loss = criterion(logits.reshape(-1, 256), tgt_labels.reshape(-1))
-            loss = criterion(logits.reshape(-1, logits.size(-1)), tgt_labels.reshape(-1))
+            # Byte CE loss (embedding IDs 1-256 -> class labels 0-255)
+            byte_labels = tgt_patch_ids - 1
+            byte_labels[~real_mask] = -100
+            byte_loss = criterion(
+                byte_logits.reshape(-1, 256),
+                byte_labels.reshape(-1),
+            )
+
+            # EOP BCE loss
+            eop_labels = torch.zeros(B, P, M, device=device)
+            valid_patches = ~tgt_patch_mask & (tgt_patch_lengths > 0)
+            eop_idx = (tgt_patch_lengths - 1).clamp(min=0).unsqueeze(-1)
+            eop_labels.scatter_(2, eop_idx, valid_patches.float().unsqueeze(-1))
+
+            eop_loss_raw = F.binary_cross_entropy_with_logits(
+                eop_logits, eop_labels, reduction="none"
+            )
+            eop_loss = (eop_loss_raw * real_mask.float()).sum() / real_mask.float().sum().clamp(min=1.0)
+
+            loss = byte_loss + config.get("eop_loss_weight", 1.0) * eop_loss
         else:
             src = batch["src"].to(device)
             tgt = batch["tgt"].to(device)
@@ -194,22 +215,36 @@ def validate(model, dataloader, criterion, device, config):
 
     for batch in dataloader:
         if config["tokenization"] == "blt":
-            src = batch["src_bytes"].to(device)
-            tgt = batch["tgt_bytes"].to(device)
-            src_pad_mask = batch["src_padding_mask"].to(device)
-            tgt_pad_mask = batch["tgt_padding_mask"].to(device)
+            src = batch["src_ids"].to(device)
+            tgt = batch["tgt_ids"].to(device)
+            src_lens = batch["src_lens"].to(device)
+            tgt_lens = batch["tgt_lens"].to(device)
 
-            logits = model(src, tgt, src_pad_mask, tgt_pad_mask)
-            tgt_labels = tgt.clone()
-            tgt_labels[tgt_labels > 0] -= 1
-            tgt_labels[tgt == 0] = -100
+            byte_logits, eop_logits, tgt_patch_ids, tgt_patch_lengths, tgt_patch_mask = (
+                model(src, tgt, src_lens, tgt_lens)
+            )
 
-            min_len = min(logits.size(1), tgt_labels.size(1))
-            logits = logits[:, :min_len, :]
-            tgt_labels = tgt_labels[:, :min_len]
+            B, P, M, _ = byte_logits.shape
+            pos_idx = torch.arange(M, device=device).view(1, 1, M)
+            real_mask = (pos_idx < tgt_patch_lengths.unsqueeze(-1)) & ~tgt_patch_mask.unsqueeze(-1)
 
-            #loss = criterion(logits.reshape(-1, 256), tgt_labels.reshape(-1))
-            loss = criterion(logits.reshape(-1, logits.size(-1)), tgt_labels.reshape(-1))
+            byte_labels = tgt_patch_ids - 1
+            byte_labels[~real_mask] = -100
+            byte_loss = criterion(
+                byte_logits.reshape(-1, 256),
+                byte_labels.reshape(-1),
+            )
+
+            eop_labels = torch.zeros(B, P, M, device=device)
+            valid_patches = ~tgt_patch_mask & (tgt_patch_lengths > 0)
+            eop_idx = (tgt_patch_lengths - 1).clamp(min=0).unsqueeze(-1)
+            eop_labels.scatter_(2, eop_idx, valid_patches.float().unsqueeze(-1))
+            eop_loss_raw = F.binary_cross_entropy_with_logits(
+                eop_logits, eop_labels, reduction="none"
+            )
+            eop_loss = (eop_loss_raw * real_mask.float()).sum() / real_mask.float().sum().clamp(min=1.0)
+
+            loss = byte_loss + config.get("eop_loss_weight", 1.0) * eop_loss
         else:
             src = batch["src"].to(device)
             tgt = batch["tgt"].to(device)
@@ -247,17 +282,18 @@ def run_evaluation(model, dataloader, tgt_tokenizer, device, config, original_pl
 
     for batch in dataloader:
         if config["tokenization"] == "blt":
-            src = batch["src_bytes"].to(device)
-            src_pad_mask = batch["src_padding_mask"].to(device)
+            src = batch["src_ids"].to(device)
+            src_lens = batch["src_lens"].to(device)
 
             with torch.no_grad():
-                logits = model.generate(src, src_pad_mask)
-            pred_bytes = logits.argmax(dim=-1)  # (batch, pred_len)
-            for i in range(pred_bytes.size(0)):
-                byte_list = pred_bytes[i].cpu().tolist()
-                text = bytes([b for b in byte_list if 0 < b < 256]).decode(
-                    "utf-8", errors="replace"
-                )
+                pred_ids, pred_lengths = model.generate(src, src_lens)
+
+            for i in range(pred_ids.size(0)):
+                L = pred_lengths[i].item()
+                embedding_ids = pred_ids[i, :L].cpu().tolist()
+                # Embedding IDs 1-256 -> actual bytes 0-255
+                actual_bytes = [(eid - 1) % 256 for eid in embedding_ids]
+                text = bytes(actual_bytes).decode("utf-8", errors="replace")
                 all_predictions.append(text)
         else:
             src = batch["src"].to(device)
@@ -298,6 +334,16 @@ def run_evaluation(model, dataloader, tgt_tokenizer, device, config, original_pl
 
         all_predictions = whole_predictions
         all_targets = whole_targets
+
+    # For BLT (C5), truncate targets to max_tgt_len since model can only
+    # generate up to that many bytes.
+    if config["tokenization"] == "blt":
+        max_tgt_len = config.get("max_tgt_len", 128)
+        truncated = []
+        for t in all_targets:
+            encoded = t.encode("utf-8")[:max_tgt_len]
+            truncated.append(encoded.decode("utf-8", errors="ignore"))
+        all_targets = truncated
 
     include_bleu_rouge = config["tokenization"] != "blt"
     return evaluate_all(all_predictions, all_targets, include_bleu_rouge)
@@ -402,22 +448,22 @@ def main():
 
         for step in range(500):
             if config["tokenization"] == "blt":
-                src = batch["src_bytes"].to(device)
-                tgt = batch["tgt_bytes"].to(device)
-                src_pad_mask = batch["src_padding_mask"].to(device)
-                tgt_pad_mask = batch["tgt_padding_mask"].to(device)
-                logits = model(src, tgt, src_pad_mask, tgt_pad_mask)
-                tgt_labels = tgt.clone()
-                tgt_labels[tgt_labels > 0] -= 1
-                tgt_labels[tgt == 0] = -100
-                min_len = min(logits.size(1), tgt_labels.size(1))
-                # loss = criterion(
-                #     logits[:, :min_len].reshape(-1, 256),
-                #     tgt_labels[:, :min_len].reshape(-1),
-                # )
+                src = batch["src_ids"].to(device)
+                tgt = batch["tgt_ids"].to(device)
+                src_lens = batch["src_lens"].to(device)
+                tgt_lens = batch["tgt_lens"].to(device)
+
+                byte_logits, eop_logits, tgt_patch_ids, tgt_patch_lengths, tgt_patch_mask = (
+                    model(src, tgt, src_lens, tgt_lens)
+                )
+                B_ov, P_ov, M_ov, _ = byte_logits.shape
+                pos_idx = torch.arange(M_ov, device=device).view(1, 1, M_ov)
+                real_mask = (pos_idx < tgt_patch_lengths.unsqueeze(-1)) & ~tgt_patch_mask.unsqueeze(-1)
+                byte_labels = tgt_patch_ids - 1
+                byte_labels[~real_mask] = -100
                 loss = overfit_criterion(
-                    logits[:, :min_len].reshape(-1, logits.size(-1)),
-                    tgt_labels[:, :min_len].reshape(-1),
+                    byte_logits.reshape(-1, 256),
+                    byte_labels.reshape(-1),
                 )
             else:
                 src = batch["src"].to(device)
@@ -436,41 +482,41 @@ def main():
             if step % 50 == 0:
                 print(f"  Step {step:4d} | Loss: {loss.item():.4f}")
 
-        print(f"  Final loss: {loss.item():.6f}")
-        # Greedy-decode the same batch to verify autoregressive inference.
-        model.eval()
-        src = batch["src"].to(device)
-        tgt = batch["tgt"].to(device)
+        if config["tokenization"] != "blt":
+            # Greedy-decode the same batch to verify autoregressive inference.
+            model.eval()
+            src = batch["src"].to(device)
+            tgt = batch["tgt"].to(device)
 
-        src_mask = (src == tgt_tokenizer.pad_id).unsqueeze(1).unsqueeze(2)
+            src_mask = (src == tgt_tokenizer.pad_id).unsqueeze(1).unsqueeze(2)
 
-        decoded = greedy_decode_batch(
-            model,
-            src,
-            src_mask,
-            config["max_tgt_len"],
-            tgt_tokenizer.bos_id,
-            tgt_tokenizer.eos_id,
-            device,
-        )
-
-        print("\n=== GREEDY DECODE MEMORIZATION TEST ===")
-        for i in range(min(3, src.size(0))):
-            target_text = tgt_tokenizer.decode(
-                tgt[i].cpu().tolist(),
-                skip_special_tokens=True,
-            )
-            pred_text = tgt_tokenizer.decode(
-                decoded[i].cpu().tolist(),
-                skip_special_tokens=True,
+            decoded = greedy_decode_batch(
+                model,
+                src,
+                src_mask,
+                config["max_tgt_len"],
+                tgt_tokenizer.bos_id,
+                tgt_tokenizer.eos_id,
+                device,
             )
 
-            print(f"\nExample {i}:")
-            print(f"  Target:    {target_text[:100]!r}")
-            print(f"  Prediction: {pred_text[:100]!r}")
-            print(f"  Exact: {pred_text == target_text}")
+            print("\n=== GREEDY DECODE MEMORIZATION TEST ===")
+            for i in range(min(3, src.size(0))):
+                target_text = tgt_tokenizer.decode(
+                    tgt[i].cpu().tolist(),
+                    skip_special_tokens=True,
+                )
+                pred_text = tgt_tokenizer.decode(
+                    decoded[i].cpu().tolist(),
+                    skip_special_tokens=True,
+                )
 
-        print("\nIf predictions closely match targets, autoregressive decoding is working.")
+                print(f"\nExample {i}:")
+                print(f"  Target:    {target_text[:100]!r}")
+                print(f"  Prediction: {pred_text[:100]!r}")
+                print(f"  Exact: {pred_text == target_text}")
+
+            print("\nIf predictions closely match targets, autoregressive decoding is working.")
 
         if loss.item() > 0.1:
             print("  WARNING: Training loss did not converge.")
