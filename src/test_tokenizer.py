@@ -11,7 +11,7 @@ ciphers, plains = load_raw_data()
 splits = train_val_test_split(ciphers, plains)
 
 # Use the same 128-byte segmentation as your C1-C4 config
-train_ciphers, train_plains = segment_pairs(
+train_ciphers, train_plains, _ = segment_pairs(
     splits["train"][0],
     splits["train"][1],
     segment_bytes=128,

@@ -5,7 +5,7 @@ ciphers, plains = load_raw_data()
 cipher = ciphers[0]
 plain = plains[0]
 
-seg_ciphers, seg_plains = segment_pairs(
+seg_ciphers, seg_plains, _ = segment_pairs(
     [cipher], [plain], segment_bytes=128
 )
 

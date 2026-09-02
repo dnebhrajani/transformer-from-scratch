@@ -41,7 +41,7 @@ def train_val_test_split(
 
 def segment_pairs(
     ciphers: list[str], plains: list[str], segment_bytes: int = 128
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], list[int]]:
     """Split cipher/plain pairs into fixed-size segments.
 
     Each original example is split into segments of `segment_bytes` plaintext
@@ -54,11 +54,18 @@ def segment_pairs(
     segment starts with the same key offset, simplifying the task.
 
     Applied **after** train/val/test split to prevent data leakage.
+
+    Returns:
+        seg_ciphers: segmented cipher strings
+        seg_plains: segmented plaintext strings
+        line_indices: line_indices[i] = index of the original line that
+                      segment i came from (for whole-line reconstruction)
     """
     seg_ciphers: list[str] = []
     seg_plains: list[str] = []
+    line_indices: list[int] = []
 
-    for cipher, plain in zip(ciphers, plains):
+    for line_idx, (cipher, plain) in enumerate(zip(ciphers, plains)):
         n = len(plain)
         for start in range(0, n, segment_bytes):
             end = min(start + segment_bytes, n)
@@ -67,8 +74,9 @@ def segment_pairs(
             if len(chunk_plain) >= 8:  # at least 1 full key cycle
                 seg_ciphers.append(chunk_cipher)
                 seg_plains.append(chunk_plain)
+                line_indices.append(line_idx)
 
-    return seg_ciphers, seg_plains
+    return seg_ciphers, seg_plains, line_indices
 
 
 # ---------- Tokenizer Management ----------
@@ -119,7 +127,7 @@ def test_tokenizer_roundtrip(
     print("=" * 60)
 
     # Use exactly the same segmentation as training
-    cipher_segments, plain_segments = segment_pairs(
+    cipher_segments, plain_segments, _ = segment_pairs(
         ciphers,
         plains,
         segment_bytes=segment_bytes,
@@ -190,8 +198,10 @@ class CipherToTextDataset(Dataset):
         max_src_len: int = 512,
         max_tgt_len: int = 512,
         cache_path: str | None = None,
+        line_indices: list[int] | None = None,
     ):
         self.plains = plains
+        self.line_indices = line_indices if line_indices is not None else list(range(len(plains)))
         self.max_src_len = max_src_len
         self.max_tgt_len = max_tgt_len
 
@@ -240,6 +250,7 @@ class CipherToTextDataset(Dataset):
             "src_ids": torch.tensor(self.src_encoded[idx], dtype=torch.long),
             "tgt_ids": torch.tensor(self.tgt_encoded[idx], dtype=torch.long),
             "plain_text": self.plains[idx],
+            "line_idx": self.line_indices[idx],
         }
 
 
@@ -256,9 +267,11 @@ class CipherToTextBLTDataset(Dataset):
         plains: list[str],
         max_src_len: int = 512,
         max_tgt_len: int = 512,
+        line_indices: list[int] | None = None,
     ):
         self.ciphers = ciphers
         self.plains = plains
+        self.line_indices = line_indices if line_indices is not None else list(range(len(plains)))
         self.max_src_len = max_src_len
         self.max_tgt_len = max_tgt_len
 
@@ -282,6 +295,7 @@ class CipherToTextBLTDataset(Dataset):
             "src_bytes": torch.tensor(src_bytes, dtype=torch.long),
             "tgt_bytes": torch.tensor(tgt_bytes, dtype=torch.long),
             "plain_text": plain,
+            "line_idx": self.line_indices[idx],
         }
 
 
@@ -309,6 +323,7 @@ class TokenizedCollator:
             "src": src_padded,
             "tgt": tgt_padded,
             "plain_texts": [item["plain_text"] for item in batch],
+            "line_indices": [item["line_idx"] for item in batch],
         }
 
 
@@ -330,6 +345,7 @@ def collate_blt(batch: list[dict]) -> dict:
         "src_padding_mask": src_padding_mask,
         "tgt_padding_mask": tgt_padding_mask,
         "plain_texts": [item["plain_text"] for item in batch],
+        "line_indices": [item["line_idx"] for item in batch],
     }
 
 
@@ -337,29 +353,33 @@ def get_dataloaders(
     config: dict,
     src_tokenizer: BPETokenizer | None = None,
     tgt_tokenizer: BPETokenizer | None = None,
-) -> tuple[DataLoader, DataLoader, DataLoader]:
+    splits: dict | None = None,
+) -> tuple[DataLoader, DataLoader, DataLoader, dict]:
     """
     Create train/val/test dataloaders based on config.
 
-    config should have:
-        - tokenization: "subword" or "blt"
-        - batch_size: int
-        - max_src_len: int
-        - max_tgt_len: int
-    """
-    ciphers, plains = load_raw_data()
-    splits = train_val_test_split(ciphers, plains)
+    Args:
+        config: should have tokenization, batch_size, max_src_len, max_tgt_len, segment_bytes
+        src_tokenizer: source BPE tokenizer (required for subword mode)
+        tgt_tokenizer: target BPE tokenizer (required for subword mode)
+        splits: pre-split data dict {"train": (ciphers, plains), ...}.
+                If None, loads raw data and splits internally.
 
-    # --- Dataset segmentation (applied consistently to all splits) ---
+    Returns:
+        train_loader, val_loader, test_loader, metadata
+        metadata["original_plains"] maps split name → list of original
+        (unsegmented) plaintext lines, for whole-line evaluation.
+    """
+    if splits is None:
+        ciphers, plains = load_raw_data()
+        splits = train_val_test_split(ciphers, plains)
+
+    # Store original unsegmented plains for whole-line evaluation
+    original_plains = {name: list(p) for name, (c, p) in splits.items()}
+
     segment_bytes = config.get("segment_bytes", 0)
-    if segment_bytes > 0:
-        splits = {
-            name: segment_pairs(c, p, segment_bytes)
-            for name, (c, p) in splits.items()
-        }
-        for name, (c, p) in splits.items():
-            print(f"  {name}: {len(c)} segments (segment_bytes={segment_bytes})")
-    
+
+    # Tokenizer round-trip test (before segmentation, on unsegmented train data)
     if config.get("tokenization", "subword") != "blt":
         test_tokenizer_roundtrip(
             splits["train"][0],
@@ -369,13 +389,30 @@ def get_dataloaders(
             segment_bytes=segment_bytes,
         )
 
+    # --- Dataset segmentation (applied consistently to all splits) ---
+    line_indices_map: dict[str, list[int]] = {}
+    if segment_bytes > 0:
+        segmented = {}
+        for name, (c, p) in splits.items():
+            seg_c, seg_p, line_idx = segment_pairs(c, p, segment_bytes)
+            segmented[name] = (seg_c, seg_p)
+            line_indices_map[name] = line_idx
+            print(f"  {name}: {len(seg_c)} segments (segment_bytes={segment_bytes})")
+        splits = segmented
+    else:
+        for name, (c, p) in splits.items():
+            line_indices_map[name] = list(range(len(p)))
+
     batch_size = config.get("batch_size", 16)
     max_src_len = config.get("max_src_len", 512)
     max_tgt_len = config.get("max_tgt_len", 512)
 
     if config.get("tokenization", "subword") == "blt":
         datasets = {
-            split: CipherToTextBLTDataset(c, p, max_src_len, max_tgt_len)
+            split: CipherToTextBLTDataset(
+                c, p, max_src_len, max_tgt_len,
+                line_indices=line_indices_map[split],
+            )
             for split, (c, p) in splits.items()
         }
         collate_fn = collate_blt
@@ -387,6 +424,7 @@ def get_dataloaders(
             split: CipherToTextDataset(
                 c, p, src_tokenizer, tgt_tokenizer, max_src_len, max_tgt_len,
                 cache_path=os.path.join(cache_dir, f"{split}.json"),
+                line_indices=line_indices_map[split],
             )
             for split, (c, p) in splits.items()
         }
@@ -407,4 +445,7 @@ def get_dataloaders(
         ),
     }
 
-    return loaders["train"], loaders["val"], loaders["test"]
+    metadata = {
+        "original_plains": original_plains,
+    }
+    return loaders["train"], loaders["val"], loaders["test"], metadata

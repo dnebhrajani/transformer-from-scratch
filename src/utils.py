@@ -15,21 +15,18 @@ def bit_level_accuracy(predicted: str, target: str) -> float:
     """
     Compute bit-level accuracy between predicted and target strings.
     Both are first converted to their UTF-8 binary representations.
-    The target length is the reference: predictions longer than the
-    target are truncated (extra output is not penalised), predictions
-    shorter than the target are zero-padded (missing output is penalised).
+    Uses max(len(pred_bits), len(tgt_bits)) as the reference length so
+    that both extra predicted bits and missing predicted bits are penalised.
     """
     pred_bits = text_to_bits(predicted)
     tgt_bits = text_to_bits(target)
 
-    ref_len = len(tgt_bits)
-    if ref_len == 0:
+    max_len = max(len(pred_bits), len(tgt_bits))
+    if max_len == 0:
         return 1.0
 
-    pred_bits = pred_bits[:ref_len].ljust(ref_len, "0")
-
     matches = sum(p == t for p, t in zip(pred_bits, tgt_bits))
-    return matches / ref_len
+    return matches / max_len
 
 
 # ---------- Sequence Accuracy ----------
@@ -48,15 +45,15 @@ def sequence_accuracy(predictions: list[str], targets: list[str]) -> float:
 def char_level_accuracy(predicted: str, target: str) -> float:
     """
     Compute character-level accuracy between predicted and target strings.
-    Target length is the reference: extra predicted characters are ignored,
-    missing characters are counted as wrong.
+    Uses max(len(predicted), len(target)) as the reference length so
+    that both extra predicted characters and missing characters are penalised.
     """
-    ref_len = len(target)
-    if ref_len == 0:
+    max_len = max(len(predicted), len(target))
+    if max_len == 0:
         return 1.0
 
     matches = sum(p == t for p, t in zip(predicted, target))
-    return matches / ref_len
+    return matches / max_len
 
 
 # ---------- Levenshtein Distance ----------

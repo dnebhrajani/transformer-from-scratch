@@ -232,11 +232,18 @@ def validate(model, dataloader, criterion, device, config):
     return total_loss / max(num_batches, 1)
 
 
-def run_evaluation(model, dataloader, tgt_tokenizer, device, config) -> dict:
-    """Run full evaluation with greedy decoding on a dataset split."""
+def run_evaluation(model, dataloader, tgt_tokenizer, device, config, original_plains=None) -> dict:
+    """Run full evaluation with greedy decoding on a dataset split.
+
+    When original_plains is provided and batches carry line_indices,
+    segment-level predictions are concatenated back into whole original
+    lines before computing metrics.  This gives whole-line sequence
+    accuracy instead of per-segment accuracy.
+    """
     model.eval()
     all_predictions = []
     all_targets = []
+    all_line_indices = []
 
     for batch in dataloader:
         if config["tokenization"] == "blt":
@@ -269,17 +276,28 @@ def run_evaluation(model, dataloader, tgt_tokenizer, device, config) -> dict:
                 all_predictions.append(text)
 
         all_targets.extend(batch["plain_texts"])
+        if "line_indices" in batch:
+            all_line_indices.extend(batch["line_indices"])
 
-    # For BLT (C5), truncate targets to max_tgt_len bytes since training
-    # data was byte-truncated.  For subword configs the BPE encoding
-    # already covers the full plaintext, so no target truncation needed.
-    if config["tokenization"] == "blt":
-        max_tgt_len = config.get("max_tgt_len", 512)
-        truncated = []
-        for t in all_targets:
-            encoded = t.encode("utf-8")[:max_tgt_len]
-            truncated.append(encoded.decode("utf-8", errors="ignore"))
-        all_targets = truncated
+    # Reconstruct whole original lines from segment predictions
+    if original_plains is not None and all_line_indices:
+        line_preds: dict[int, list[tuple[int, str]]] = {}
+        for global_idx, (pred, line_idx) in enumerate(zip(all_predictions, all_line_indices)):
+            if line_idx not in line_preds:
+                line_preds[line_idx] = []
+            line_preds[line_idx].append((global_idx, pred))
+
+        whole_predictions = []
+        whole_targets = []
+        for line_idx in sorted(line_preds.keys()):
+            segs = line_preds[line_idx]
+            segs.sort(key=lambda x: x[0])
+            whole_pred = "".join(s[1] for s in segs)
+            whole_predictions.append(whole_pred)
+            whole_targets.append(original_plains[line_idx])
+
+        all_predictions = whole_predictions
+        all_targets = whole_targets
 
     include_bleu_rouge = config["tokenization"] != "blt"
     return evaluate_all(all_predictions, all_targets, include_bleu_rouge)
@@ -312,13 +330,17 @@ def main():
     if not args.no_wandb:
         wandb.init(project="anlp-transformer-from-scratch", name=config["name"], config=config)
 
-    # Tokenizers
+    # Load data and split FIRST (before tokenizer training to avoid data leakage)
+    ciphers, plains = load_raw_data()
+    splits = train_val_test_split(ciphers, plains)
+
+    # Tokenizers — train ONLY on the training split
     src_tokenizer = None
     tgt_tokenizer = None
     if config["tokenization"] == "subword":
-        ciphers, plains = load_raw_data()
+        train_ciphers, train_plains = splits["train"]
         src_tokenizer, tgt_tokenizer = get_or_train_tokenizers(
-            ciphers, plains,
+            train_ciphers, train_plains,
             src_vocab_size=config["src_bpe_vocab_size"],
             tgt_vocab_size=config["tgt_bpe_vocab_size"],
         )
@@ -327,8 +349,10 @@ def main():
         print(f"Source vocab size: {config['src_vocab_size']}")
         print(f"Target vocab size: {config['tgt_vocab_size']}")
 
-    # Dataloaders
-    train_loader, val_loader, test_loader = get_dataloaders(config, src_tokenizer, tgt_tokenizer)
+    # Dataloaders — pass pre-split data to avoid re-loading
+    train_loader, val_loader, test_loader, data_meta = get_dataloaders(
+        config, src_tokenizer, tgt_tokenizer, splits=splits
+    )
     print(f"Train: {len(train_loader.dataset)}, Val: {len(val_loader.dataset)}, Test: {len(test_loader.dataset)}")
 
     # Model
@@ -511,7 +535,8 @@ def main():
     # Final evaluation on test set
     print("\n=== Test Set Evaluation ===")
     model.load_state_dict(torch.load(save_dir / "best_model.pt", map_location=device))
-    metrics = run_evaluation(model, test_loader, tgt_tokenizer, device, config)
+    test_original_plains = data_meta["original_plains"]["test"]
+    metrics = run_evaluation(model, test_loader, tgt_tokenizer, device, config, test_original_plains)
 
     for k, v in metrics.items():
         print(f"  {k}: {v:.4f}")
