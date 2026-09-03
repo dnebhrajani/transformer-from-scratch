@@ -1,6 +1,0 @@
-{
-  "bit_level_accuracy": 0.6465742580344525,
-  "char_level_accuracy": 0.06329182444481414,
-  "sequence_accuracy": 0.0,
-  "avg_levenshtein": 425.672
-}

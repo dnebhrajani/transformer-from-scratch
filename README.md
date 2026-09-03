@@ -4,7 +4,7 @@
 
 ## Links
 
-* **Weights & Biases Dashboard:** 
+* **Weights & Biases Dashboard:** https://api.wandb.ai/links/dnebhrajani-v/v6ahrvi6 
 * **Hugging Face Model Checkpoints:** https://huggingface.co/dnebh/transformer-scratch
 
 ## Overview
@@ -23,27 +23,42 @@ The implementation does not use `nn.Transformer` or `nn.MultiheadAttention`.
 
 ```text
 2024101144_assignment1/
-├── Dataset_A1/
-│   ├── README.md
-│   ├── brown_cipher.txt
-│   └── brown_plain.txt
-├── outputs/
-│   └── checkpoints/
-├── src/
-│   ├── models/
-│   │   ├── attention.py
-│   │   ├── blt.py
-│   │   ├── norm.py
-│   │   ├── positional.py
-│   │   └── transformer.py
-│   ├── dataset.py
-│   ├── tokenizer.py
-│   ├── train.py
-│   └── utils.py
-├── requirements.txt
+├── README.md
 ├── Report.pdf
-└── README.md
-```
+├── requirements.txt
+├── outputs/
+│   ├── C1_Base_2685842.log
+│   ├── C2_RoPE_2685843.log
+│   ├── C3_GQA_2685845.log
+│   ├── C4_RMSNorm_2685846.log
+│   ├── C5_BLT_2686655.log
+│   ├── ablation_accuracy.png
+│   ├── ablation_quality.png
+│   ├── peak_gpu_memory.png
+│   ├── train_loss.png
+│   ├── val_loss.png
+│   └── checkpoints/
+│       ├── C1_base/
+│       │   └── test_metrics.json
+│       ├── C2_rope/
+│       │   └── test_metrics.json
+│       ├── C3_gqa/
+│       │   └── test_metrics.json
+│       ├── C4_rmsnorm/
+│       │   └── test_metrics.json
+│       └── C5_blt/
+│           └── test_metrics.json
+└── src/
+    ├── dataset.py
+    ├── tokenizer.py
+    ├── train.py
+    ├── utils.py
+    └── models/
+        ├── attention.py
+        ├── blt.py
+        ├── norm.py
+        ├── positional.py
+        └── transformer.py
 
 ## How to Run
 

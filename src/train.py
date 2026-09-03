@@ -88,7 +88,7 @@ CONFIGS = {
         "norm_type": "layernorm",
         "tokenization": "blt",
         "patch_size": 8,
-        "batch_size": 8,
+        "batch_size": 16,
         "local_layers": 1,
         "local_heads": 4,
         "segment_bytes": 0,  # C5 skips segmentation — full sequences
